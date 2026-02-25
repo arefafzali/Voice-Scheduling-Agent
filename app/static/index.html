@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voice Scheduling Agent</title>
+  <style>
+    :root {
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light dark;
+    }
+    body {
+      margin: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+    }
+    .card {
+      width: min(900px, 92vw);
+      background: #111827;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 1rem;
+    }
+    h1 { margin-top: 0; }
+    .chat {
+      height: 55vh;
+      overflow-y: auto;
+      border: 1px solid #374151;
+      border-radius: 10px;
+      padding: 0.75rem;
+      margin-bottom: 1rem;
+      background: #0b1220;
+    }
+    .msg { margin: 0.4rem 0; }
+    .assistant { color: #93c5fd; }
+    .user { color: #a7f3d0; }
+    .controls {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+    }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 0.6rem 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+    }
+    input {
+      flex: 1;
+      border: 1px solid #4b5563;
+      border-radius: 10px;
+      padding: 0.6rem 0.8rem;
+      background: #111827;
+      color: #e5e7eb;
+    }
+    .status { margin-top: 0.5rem; color: #94a3b8; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Voice Scheduling Agent</h1>
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <div class="controls">
+      <input id="textInput" placeholder="Type your response or use Speak" />
+      <button id="sendBtn">Send</button>
+      <button id="speakBtn">Speak</button>
+    </div>
+    <div class="controls" style="margin-top: 0.5rem;">
+      <button id="connectBtn">Connect Calendar</button>
+      <button id="checkConnBtn">Check Connection</button>
+      <button id="disconnectBtn">Disconnect</button>
+    </div>
+    <div class="status" id="status">Initializing session...</div>
+  </main>
+
+  <script>
+    const chatEl = document.getElementById('chat');
+    const textInput = document.getElementById('textInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const speakBtn = document.getElementById('speakBtn');
+    const connectBtn = document.getElementById('connectBtn');
+    const checkConnBtn = document.getElementById('checkConnBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const statusEl = document.getElementById('status');
+    const queryParams = new URLSearchParams(window.location.search);
+    const CHAT_STORAGE_KEY = 'vsa_chat_history_v1';
+
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    }
+
+    function addMessage(role, text) {
+      const p = document.createElement('p');
+      p.className = `msg ${role}`;
+      p.textContent = `${role === 'assistant' ? 'Agent' : 'You'}: ${text}`;
+      chatEl.appendChild(p);
+      chatEl.scrollTop = chatEl.scrollHeight;
+      persistMessage(role, text);
+    }
+
+    function persistMessage(role, text) {
+      try {
+        const existing = JSON.parse(sessionStorage.getItem(CHAT_STORAGE_KEY) || '[]');
+        existing.push({ role, text });
+        sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(existing));
+      } catch (_) {
+      }
+    }
+
+    function restoreChatHistory() {
+      try {
+        const existing = JSON.parse(sessionStorage.getItem(CHAT_STORAGE_KEY) || '[]');
+        if (!Array.isArray(existing)) return;
+        for (const item of existing) {
+          if (!item || typeof item.role !== 'string' || typeof item.text !== 'string') continue;
+          const p = document.createElement('p');
+          p.className = `msg ${item.role}`;
+          p.textContent = `${item.role === 'assistant' ? 'Agent' : 'You'}: ${item.text}`;
+          chatEl.appendChild(p);
+        }
+        chatEl.scrollTop = chatEl.scrollHeight;
+      } catch (_) {
+      }
+    }
+
+    function speak(text) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    }
+
+    async function startSession() {
+      const callbackSessionId = queryParams.get('session_id');
+      const oauthConnected = queryParams.get('oauth') === 'connected';
+      const startUrl = (oauthConnected && callbackSessionId)
+        ? `/api/session/start?session_id=${encodeURIComponent(callbackSessionId)}`
+        : '/api/session/start?force_new=true';
+
+      const response = await fetch(startUrl, { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to create session');
+      const data = await response.json();
+      if (data.assistant_message && data.assistant_message !== 'Session resumed.') {
+        addMessage('assistant', data.assistant_message);
+        speak(data.assistant_message);
+      }
+      statusEl.textContent = 'Session ready';
+      const connected = await checkConnectionStatus();
+
+      if (oauthConnected) {
+        if (!connected) {
+          statusEl.textContent = 'OAuth completed but calendar is not linked to this session';
+        }
+        window.history.replaceState({}, document.title, '/');
+      }
+    }
+
+    async function checkConnectionStatus() {
+      const response = await fetch('/api/auth/google/status');
+      if (!response.ok) {
+        statusEl.textContent = 'Unable to check calendar connection';
+        return false;
+      }
+      const data = await response.json();
+      statusEl.textContent = data.connected ? 'Calendar connected' : 'Calendar not connected';
+      return Boolean(data.connected);
+    }
+
+    async function disconnectCalendar() {
+      const csrfToken = getCookie('vsa_csrf');
+      const response = await fetch('/api/auth/google/disconnect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken || ''
+        },
+        body: JSON.stringify({})
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        const detail = errorPayload.detail || `Disconnect failed (${response.status})`;
+        addMessage('assistant', detail);
+        return;
+      }
+
+      addMessage('assistant', 'Calendar disconnected for this session.');
+      await checkConnectionStatus();
+    }
+
+    async function sendTurn(message) {
+      addMessage('user', message);
+
+      const csrfToken = getCookie('vsa_csrf');
+
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken || ''
+        },
+        body: JSON.stringify({ user_message: message })
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        const detail = errorPayload.detail || `Request failed (${response.status})`;
+        addMessage('assistant', detail);
+        statusEl.textContent = 'Request failed';
+        return;
+      }
+
+      const data = await response.json();
+      addMessage('assistant', data.assistant_message);
+      speak(data.assistant_message);
+    }
+
+    sendBtn.addEventListener('click', async () => {
+      const message = textInput.value.trim();
+      if (!message) return;
+      textInput.value = '';
+      await sendTurn(message);
+    });
+
+    textInput.addEventListener('keydown', async (event) => {
+      if (event.key === 'Enter') {
+        const message = textInput.value.trim();
+        if (!message) return;
+        textInput.value = '';
+        await sendTurn(message);
+      }
+    });
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.addEventListener('start', () => {
+        statusEl.textContent = 'Listening...';
+      });
+
+      recognition.addEventListener('end', () => {
+        statusEl.textContent = 'Session ready';
+      });
+
+      recognition.addEventListener('result', async (event) => {
+        const transcript = event.results[0][0].transcript;
+        await sendTurn(transcript);
+      });
+
+      speakBtn.addEventListener('click', () => recognition.start());
+    } else {
+      speakBtn.disabled = true;
+      statusEl.textContent = 'Speech recognition not supported in this browser';
+    }
+
+    connectBtn.addEventListener('click', () => {
+      window.location.assign('/api/auth/google/start');
+    });
+
+    checkConnBtn.addEventListener('click', async () => {
+      await checkConnectionStatus();
+    });
+
+    disconnectBtn.addEventListener('click', async () => {
+      await disconnectCalendar();
+    });
+
+    restoreChatHistory();
+
+    startSession().catch((error) => {
+      statusEl.textContent = 'Initialization failed';
+      addMessage('assistant', `Error: ${error.message}`);
+    });
+  </script>
+</body>
+</html>
