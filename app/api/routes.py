@@ -545,12 +545,17 @@ def build_router(
         request: Request,
         response: Response,
         session_id: Annotated[str | None, Query(min_length=1, max_length=128)] = None,
+        return_to: Annotated[str, Query(description="UI path to return to after OAuth callback")]= "/",
         redirect: Annotated[bool, Query(description="Set false to return authorization_url as JSON")]=True,
     ) -> OAuthStartResponse | RedirectResponse:
         resolved_session_id = _resolve_session_id(request, session_id)
         start_payload = _get_or_create_session(resolved_session_id)
+        safe_return_to = return_to if return_to.startswith("/") else "/"
         try:
-            authorization_url = oauth_service.build_authorization_url(session_id=start_payload.session_id)
+            authorization_url = oauth_service.build_authorization_url(
+                session_id=start_payload.session_id,
+                return_to=safe_return_to,
+            )
         except Exception as exc:
             logger.exception("oauth_start_failed")
             raise HTTPException(
@@ -580,7 +585,7 @@ def build_router(
         request: Request,
     ) -> RedirectResponse:
         try:
-            session_id = oauth_service.handle_callback(db=db, state=state, code=code)
+            session_id, return_to = oauth_service.handle_callback(db=db, state=state, code=code)
             _write_audit(
                 db,
                 action="oauth_callback",
@@ -620,8 +625,9 @@ def build_router(
                 ),
             ) from exc
 
+        safe_return_to = return_to if return_to.startswith("/") else "/"
         redirect_response = RedirectResponse(
-            url=f"{settings.app_base_url}/?oauth=connected&session_id={session_id}",
+            url=f"{settings.app_base_url}{safe_return_to}?oauth=connected&session_id={session_id}",
             status_code=302,
         )
         _set_session_cookie(redirect_response, session_id)

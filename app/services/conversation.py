@@ -37,7 +37,7 @@ class ConversationService:
         )
 
     def process_turn(self, state: SessionState, user_message: str) -> AgentTurnResponse:
-        message = user_message.strip()
+        message = user_message
         ctx_token = set_current_session_id(state.session_id)
         try:
             if state.stage == ConversationStage.COMPLETED:
@@ -75,9 +75,9 @@ class ConversationService:
         state.stage = ConversationStage.COLLECT_DATE if state.name else ConversationStage.COLLECT_NAME
 
     def _apply_common_overrides(self, state: SessionState, decision) -> None:
-        if decision.extracted_timezone:
+        if decision.change_timezone_requested and decision.extracted_timezone:
             state.timezone = decision.extracted_timezone
-        if decision.extracted_duration_minutes:
+        if decision.change_duration_requested and decision.extracted_duration_minutes:
             state.duration_minutes = decision.extracted_duration_minutes
 
     def _apply_extracted_fields(self, state: SessionState, decision) -> None:
@@ -101,21 +101,21 @@ class ConversationService:
         if not state.name:
             state.stage = ConversationStage.COLLECT_NAME
             return AgentTurnResponse(
-                assistant_message=self._msg(decision, "Could you share your name?"),
+                assistant_message="I’m your scheduling assistant. What name should I use for you?",
                 state=state,
             )
 
         if state.preferred_date is None:
             state.stage = ConversationStage.COLLECT_DATE
             return AgentTurnResponse(
-                assistant_message=self._msg(decision, f"Thanks {state.name}. What date should I use?"),
+                assistant_message=f"Thanks {state.name}. What date should I schedule the meeting for?",
                 state=state,
             )
 
         if state.preferred_time is None:
             state.stage = ConversationStage.COLLECT_TIME
             return AgentTurnResponse(
-                assistant_message=self._msg(decision, "What exact time should I set?"),
+                assistant_message="What exact time should I set?",
                 state=state,
             )
 
@@ -130,6 +130,16 @@ class ConversationService:
 
     def _handle_name(self, state: SessionState, decision) -> AgentTurnResponse:
         self._apply_extracted_fields(state, decision)
+
+        if state.name and state.preferred_date is None:
+            state.stage = ConversationStage.COLLECT_DATE
+            return AgentTurnResponse(
+                assistant_message=(
+                    f"Great to meet you, {state.name}. What date should I schedule the meeting for?"
+                ),
+                state=state,
+            )
+
         return self._advance_after_collection(state, decision)
 
     def _handle_date(self, state: SessionState, decision) -> AgentTurnResponse:
@@ -137,14 +147,14 @@ class ConversationService:
         if state.preferred_date is None:
             state.stage = ConversationStage.COLLECT_DATE
             return AgentTurnResponse(
-                assistant_message=self._msg(decision, "Please provide a specific date."),
+                assistant_message="Please provide a specific date.",
                 state=state,
             )
 
         if decision.ambiguous_datetime and state.preferred_time is None:
             state.stage = ConversationStage.COLLECT_TIME
             return AgentTurnResponse(
-                assistant_message=self._msg(decision, "What exact time should I set?"),
+                assistant_message="What exact time should I set?",
                 state=state,
             )
         return self._advance_after_collection(state, decision)
@@ -155,14 +165,14 @@ class ConversationService:
         if decision.ambiguous_datetime and state.preferred_time is None:
             state.stage = ConversationStage.COLLECT_TIME
             return AgentTurnResponse(
-                assistant_message=self._msg(decision, "Could you provide an exact time?"),
+                assistant_message="Could you provide an exact time?",
                 state=state,
             )
 
         if state.preferred_time is None:
             state.stage = ConversationStage.COLLECT_TIME
             return AgentTurnResponse(
-                assistant_message=self._msg(decision, "I need a specific time to continue."),
+                assistant_message="I need a specific time to continue.",
                 state=state,
             )
         return self._advance_after_collection(state, decision)
@@ -187,8 +197,8 @@ class ConversationService:
                 decision.extracted_time is not None,
                 bool(decision.extracted_title),
                 bool(decision.skip_title),
-                bool(decision.extracted_timezone),
-                decision.extracted_duration_minutes is not None,
+                bool(decision.change_timezone_requested and decision.extracted_timezone),
+                bool(decision.change_duration_requested and decision.extracted_duration_minutes is not None),
             ]
         )
 
@@ -208,8 +218,6 @@ class ConversationService:
             )
 
         confirmation_intent = decision.confirmation_intent
-        if confirmation_intent == "none":
-            confirmation_intent = self._infer_confirmation_intent(user_message)
 
         if confirmation_intent == "confirm":
             try:
@@ -246,67 +254,6 @@ class ConversationService:
             assistant_message=self._build_confirmation_prompt(state),
             state=state,
         )
-
-    def _infer_confirmation_intent(self, user_message: str) -> str:
-        normalized = " ".join(user_message.lower().strip().split())
-        if not normalized:
-            return "none"
-
-        confirm_tokens = {
-            "y",
-            "yes",
-            "yeah",
-            "yep",
-            "yup",
-            "ok",
-            "okay",
-            "sure",
-            "confirm",
-            "approved",
-            "please",
-        }
-        decline_tokens = {
-            "n",
-            "no",
-            "nope",
-            "cancel",
-            "stop",
-            "decline",
-            "dont",
-            "don't",
-            "do not",
-        }
-
-        if normalized in confirm_tokens:
-            return "confirm"
-        if normalized in decline_tokens:
-            return "decline"
-
-        confirm_phrases = (
-            "go ahead",
-            "do it",
-            "set it up",
-            "create it",
-            "schedule it",
-            "please do",
-            "looks good",
-        )
-        for phrase in confirm_phrases:
-            if phrase in normalized:
-                return "confirm"
-
-        decline_phrases = (
-            "do not",
-            "don't",
-            "not now",
-            "change it",
-            "wrong",
-        )
-        for phrase in decline_phrases:
-            if phrase in normalized:
-                return "decline"
-
-        return "none"
 
     def _handle_correction(self, state: SessionState, decision) -> AgentTurnResponse:
         self._apply_extracted_fields(state, decision)

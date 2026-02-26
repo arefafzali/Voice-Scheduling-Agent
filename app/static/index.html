@@ -6,669 +6,83 @@
   <title>Voice Scheduling Agent</title>
   <style>
     :root {
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       color-scheme: light dark;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       --bg: #0b1220;
-      --panel: #121a2b;
-      --border: #26314a;
-      --text: #e2e8f0;
-      --muted: #99a7c2;
-      --assistant: #6ea8ff;
-      --user: #8fe8c0;
-      --primary: #3468ff;
-      --danger: #cc4b4b;
-      --chip: #1d2942;
+      --panel: #111a2e;
+      --border: #2a3b60;
+      --text: #e8eefc;
+      --muted: #9eb2d8;
+      --primary: #356dff;
     }
     body {
       margin: 0;
-      background: radial-gradient(circle at top right, #13203c 0%, var(--bg) 40%);
-      color: var(--text);
+      min-height: 100vh;
       display: grid;
       place-items: center;
-      min-height: 100vh;
+      background: radial-gradient(circle at 20% 10%, #142544 0%, var(--bg) 45%);
+      color: var(--text);
     }
-    .card {
-      width: min(1080px, 95vw);
-      background: linear-gradient(180deg, #111a30 0%, #0f1729 100%);
+    .wrap {
+      width: min(920px, 94vw);
       border: 1px solid var(--border);
       border-radius: 16px;
-      padding: 1rem 1.1rem;
-      box-shadow: 0 20px 45px rgba(5, 10, 24, 0.4);
+      background: linear-gradient(180deg, #111a30 0%, #0f1729 100%);
+      padding: 1rem;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
     }
-    .topbar {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 1rem;
-      margin-bottom: 0.8rem;
-    }
-    h1 { margin: 0; font-size: 1.25rem; }
-    .subtitle { margin: 0.3rem 0 0; color: var(--muted); font-size: 0.9rem; }
-    .badges { display: flex; gap: 0.45rem; flex-wrap: wrap; }
-    .badge {
-      background: var(--chip);
-      border: 1px solid #314163;
-      color: #c5d0e8;
-      border-radius: 999px;
-      padding: 0.32rem 0.6rem;
-      font-size: 0.78rem;
-      white-space: nowrap;
-    }
-    .chat {
-      height: 52vh;
-      overflow-y: auto;
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 0.8rem;
-      margin-bottom: 0.9rem;
-      background: rgba(10, 18, 32, 0.84);
-    }
-    .msg {
-      margin: 0.5rem 0;
-      display: flex;
-      gap: 0.5rem;
-      align-items: baseline;
-      line-height: 1.35;
-    }
-    .msg strong {
-      min-width: 3.2rem;
-      font-size: 0.82rem;
-      color: var(--muted);
-      font-weight: 700;
-    }
-    .assistant { color: var(--assistant); }
-    .user { color: var(--user); }
-    .msg .time {
-      color: #7b8aab;
-      font-size: 0.74rem;
-      margin-left: 0.4rem;
-    }
-    .toolbar {
+    h1 { margin: 0; font-size: 1.35rem; }
+    p { color: var(--muted); margin: 0.5rem 0 0; }
+    .grid {
+      margin-top: 1rem;
       display: grid;
-      gap: 0.6rem;
-      margin-bottom: 0.75rem;
+      gap: 0.9rem;
+      grid-template-columns: 1fr 1fr;
     }
-    .controls {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-      flex-wrap: wrap;
+    .card {
+      border: 1px solid #334874;
+      border-radius: 14px;
+      padding: 0.9rem;
+      background: #121f3d;
     }
-    button {
-      border: 0;
-      border-radius: 10px;
-      padding: 0.56rem 0.86rem;
-      font-weight: 600;
-      cursor: pointer;
-      background: var(--primary);
+    .card h2 { margin: 0; font-size: 1.05rem; }
+    .card p { margin-top: 0.45rem; min-height: 2.5rem; }
+    .btn {
+      margin-top: 0.8rem;
+      display: inline-block;
+      text-decoration: none;
       color: white;
-      transition: transform 0.08s ease, opacity 0.15s ease;
-    }
-    button:hover { transform: translateY(-1px); }
-    button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
-    .secondary { background: #2a3b5f; }
-    .danger { background: var(--danger); }
-    .ghost {
-      background: transparent;
-      border: 1px solid #3c4e73;
-      color: #c8d3eb;
-    }
-    input {
-      flex: 1;
-      min-width: 340px;
-      border: 1px solid #445476;
+      background: var(--primary);
       border-radius: 10px;
-      padding: 0.65rem 0.82rem;
-      background: #111a2e;
-      color: #e5e7eb;
-      outline: none;
+      padding: 0.56rem 0.85rem;
+      font-weight: 650;
     }
-    input:focus { border-color: #5f80d9; }
-    .status {
-      margin-top: 0.45rem;
-      color: var(--muted);
-      font-size: 0.88rem;
-    }
-    .hint {
-      font-size: 0.78rem;
-      color: #8898ba;
-      margin-top: 0.35rem;
+    .sub { margin-top: 0.8rem; font-size: 0.84rem; }
+    @media (max-width: 760px) {
+      .grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <main class="card">
-    <div class="topbar">
-      <div>
-        <h1>Voice Scheduling Agent</h1>
-        <p class="subtitle">Schedule multiple meetings in one session with text or voice.</p>
-      </div>
-      <div class="badges">
-        <span class="badge" id="sessionBadge">Session: —</span>
-        <span class="badge" id="calendarBadge">Calendar: unknown</span>
-        <span class="badge" id="voiceBadge">Voice: off</span>
-      </div>
+  <main class="wrap">
+    <h1>Voice Scheduling Agent</h1>
+    <p>Choose the experience that fits your workflow. Both modes keep server-side tool execution and confirmation-before-create.</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Chat Mode</h2>
+        <p>Type naturally, review details, and confirm before creating events.</p>
+        <a class="btn" href="/chat">Open Chat</a>
+      </section>
+
+      <section class="card">
+        <h2>Voice Mode</h2>
+        <p>Realtime WebRTC voice with live transcript and event log visibility.</p>
+        <a class="btn" href="/voice">Open Voice</a>
+      </section>
     </div>
 
-    <div id="chat" class="chat" aria-live="polite"></div>
-
-    <div class="toolbar">
-      <div class="controls">
-        <button id="newSessionBtn" class="ghost">New Session</button>
-        <button id="clearChatBtn" class="ghost">Clear Chat</button>
-        <button id="connectBtn" class="secondary">Connect Calendar</button>
-        <button id="checkConnBtn" class="secondary">Check Connection</button>
-        <button id="disconnectBtn" class="danger">Disconnect</button>
-      </div>
-
-      <div class="controls">
-        <input id="textInput" placeholder="Type your message and press Enter" />
-        <button id="sendBtn">Send</button>
-        <button id="realtimeStartBtn" class="secondary">Start Voice Mode</button>
-        <button id="realtimeStopBtn" class="danger" disabled>Stop Voice</button>
-      </div>
-    </div>
-    <div class="status" id="status">Initializing session...</div>
-    <div class="hint">Tip: after an event is created, just keep talking to schedule the next one in the same session.</div>
+    <p class="sub">Tip: connect Google Calendar once in chat mode, then use either page.</p>
   </main>
-
-  <script>
-    const chatEl = document.getElementById('chat');
-    const textInput = document.getElementById('textInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const newSessionBtn = document.getElementById('newSessionBtn');
-    const clearChatBtn = document.getElementById('clearChatBtn');
-    const realtimeStartBtn = document.getElementById('realtimeStartBtn');
-    const realtimeStopBtn = document.getElementById('realtimeStopBtn');
-    const connectBtn = document.getElementById('connectBtn');
-    const checkConnBtn = document.getElementById('checkConnBtn');
-    const disconnectBtn = document.getElementById('disconnectBtn');
-    const statusEl = document.getElementById('status');
-    const sessionBadgeEl = document.getElementById('sessionBadge');
-    const calendarBadgeEl = document.getElementById('calendarBadge');
-    const voiceBadgeEl = document.getElementById('voiceBadge');
-    const queryParams = new URLSearchParams(window.location.search);
-    const CHAT_STORAGE_PREFIX = 'vsa_chat_history_v2:';
-    const realtimeAudioEl = document.createElement('audio');
-    realtimeAudioEl.autoplay = true;
-    let currentSessionId = null;
-    let activeChatStorageKey = null;
-    let realtimePc = null;
-    let realtimeDc = null;
-    let realtimeStream = null;
-    let isSynthesizing = false;
-    let realtimeTranscriptBuffer = '';
-    let realtimeTranscriptFlushTimer = null;
-    let ignoreVoiceInputUntil = 0;
-    let lastAssistantMessage = '';
-
-    function setVoiceButtonState(connected) {
-      realtimeStartBtn.disabled = connected;
-      realtimeStopBtn.disabled = !connected;
-      voiceBadgeEl.textContent = connected ? 'Voice: active' : 'Voice: off';
-    }
-
-    function getCookie(name) {
-      const value = `; ${document.cookie}`;
-      const parts = value.split(`; ${name}=`);
-      if (parts.length === 2) return parts.pop().split(';').shift();
-      return null;
-    }
-
-    function chatStorageKey(sessionId) {
-      return `${CHAT_STORAGE_PREFIX}${sessionId}`;
-    }
-
-    function clearChatUi() {
-      chatEl.innerHTML = '';
-    }
-
-    function addMessage(role, text, persist = true) {
-      const row = document.createElement('div');
-      row.className = `msg ${role}`;
-
-      const label = document.createElement('strong');
-      label.textContent = role === 'assistant' ? 'Agent' : 'You';
-
-      const message = document.createElement('span');
-      message.textContent = text;
-
-      const time = document.createElement('span');
-      time.className = 'time';
-      time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      row.appendChild(label);
-      row.appendChild(message);
-      row.appendChild(time);
-
-      chatEl.appendChild(row);
-      chatEl.scrollTop = chatEl.scrollHeight;
-      if (persist) {
-        persistMessage(role, text);
-      }
-      if (role === 'assistant') {
-        lastAssistantMessage = text || '';
-      }
-    }
-
-    function normalizeForCompare(value) {
-      return (value || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-
-    function looksLikeAssistantEcho(candidate, assistantText) {
-      const c = normalizeForCompare(candidate);
-      const a = normalizeForCompare(assistantText);
-      if (!c || !a) return false;
-      if (c === a) return true;
-      if (c.length >= 24 && a.includes(c)) return true;
-      if (a.length >= 24 && c.includes(a)) return true;
-
-       const cWords = c.split(' ').filter(Boolean);
-       const aWords = new Set(a.split(' ').filter(Boolean));
-       if (!cWords.length || !aWords.size) return false;
-       let overlap = 0;
-       for (const word of cWords) {
-         if (aWords.has(word)) overlap += 1;
-       }
-       const overlapRatio = overlap / cWords.length;
-       if (cWords.length >= 5 && overlapRatio >= 0.6) return true;
-      return false;
-    }
-
-    function stripAssistantEcho(candidate) {
-      const transcript = (candidate || '').trim();
-      if (!transcript || !lastAssistantMessage) return transcript;
-
-      const loweredTranscript = transcript.toLowerCase();
-      const loweredAssistant = lastAssistantMessage.toLowerCase().trim();
-      if (!loweredAssistant) return transcript;
-
-      const directIndex = loweredTranscript.indexOf(loweredAssistant);
-      if (directIndex >= 0) {
-        const before = transcript.slice(0, directIndex).trim();
-        const after = transcript.slice(directIndex + lastAssistantMessage.length).trim();
-        const merged = `${before} ${after}`.replace(/\s+/g, ' ').trim();
-        return merged;
-      }
-
-      return transcript;
-    }
-
-    function shouldSuppressVoiceTranscript(transcript) {
-      if (Date.now() < ignoreVoiceInputUntil) {
-        return true;
-      }
-      return looksLikeAssistantEcho(transcript, lastAssistantMessage);
-    }
-
-    function setRealtimeMicEnabled(enabled) {
-      if (!realtimeStream) return;
-      const tracks = realtimeStream.getAudioTracks();
-      for (const track of tracks) {
-        track.enabled = enabled;
-      }
-    }
-
-    function persistMessage(role, text) {
-      if (!activeChatStorageKey) return;
-      try {
-        const existing = JSON.parse(sessionStorage.getItem(activeChatStorageKey) || '[]');
-        existing.push({ role, text });
-        sessionStorage.setItem(activeChatStorageKey, JSON.stringify(existing));
-      } catch (_) {
-      }
-    }
-
-    function restoreChatHistoryForSession(sessionId) {
-      activeChatStorageKey = chatStorageKey(sessionId);
-      clearChatUi();
-      try {
-        const existing = JSON.parse(sessionStorage.getItem(activeChatStorageKey) || '[]');
-        if (!Array.isArray(existing)) return;
-        for (const item of existing) {
-          if (!item || typeof item.role !== 'string' || typeof item.text !== 'string') continue;
-          addMessage(item.role, item.text, false);
-        }
-        chatEl.scrollTop = chatEl.scrollHeight;
-      } catch (_) {
-      }
-    }
-
-    function updateSessionBadge(sessionId) {
-      if (!sessionId) {
-        sessionBadgeEl.textContent = 'Session: —';
-        return;
-      }
-      sessionBadgeEl.textContent = `Session: ${sessionId.slice(0, 8)}…`;
-    }
-
-    function speak(text) {
-      if (!text || !text.trim()) return;
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1;
-      utterance.onstart = () => {
-        isSynthesizing = true;
-        ignoreVoiceInputUntil = Date.now() + 8000;
-        setRealtimeMicEnabled(false);
-      };
-      utterance.onend = () => {
-        isSynthesizing = false;
-        ignoreVoiceInputUntil = Date.now() + 1800;
-        setTimeout(() => setRealtimeMicEnabled(true), 250);
-      };
-      utterance.onerror = () => {
-        isSynthesizing = false;
-        ignoreVoiceInputUntil = Date.now() + 1800;
-        setTimeout(() => setRealtimeMicEnabled(true), 250);
-      };
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.speak(utterance);
-    }
-
-    async function startSession(forceNew = false) {
-      const callbackSessionId = queryParams.get('session_id');
-      const oauthConnected = queryParams.get('oauth') === 'connected';
-      const startUrl = (!forceNew && oauthConnected && callbackSessionId)
-        ? `/api/session/start?session_id=${encodeURIComponent(callbackSessionId)}`
-        : `/api/session/start?force_new=${forceNew ? 'true' : 'false'}`;
-
-      const response = await fetch(startUrl, { method: 'POST' });
-      if (!response.ok) throw new Error('Failed to create session');
-      const data = await response.json();
-      currentSessionId = data.session_id;
-      updateSessionBadge(currentSessionId);
-      restoreChatHistoryForSession(currentSessionId);
-      if (data.assistant_message && data.assistant_message !== 'Session resumed.') {
-        addMessage('assistant', data.assistant_message);
-      }
-      statusEl.textContent = 'Session ready';
-      const connected = await checkConnectionStatus();
-
-      if (oauthConnected) {
-        if (!connected) {
-          statusEl.textContent = 'OAuth completed but calendar is not linked to this session';
-        }
-        window.history.replaceState({}, document.title, '/');
-      }
-    }
-
-    async function checkConnectionStatus() {
-      const response = await fetch('/api/auth/google/status');
-      if (!response.ok) {
-        statusEl.textContent = 'Unable to check calendar connection';
-        calendarBadgeEl.textContent = 'Calendar: unknown';
-        return false;
-      }
-      const data = await response.json();
-      statusEl.textContent = data.connected ? 'Calendar connected' : 'Calendar not connected';
-      calendarBadgeEl.textContent = data.connected ? 'Calendar: connected' : 'Calendar: disconnected';
-      return Boolean(data.connected);
-    }
-
-    async function disconnectCalendar() {
-      const csrfToken = getCookie('vsa_csrf');
-      const response = await fetch('/api/auth/google/disconnect', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || ''
-        },
-        body: JSON.stringify({})
-      });
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        const detail = parseErrorDetail(errorPayload, `Disconnect failed (${response.status})`);
-        addMessage('assistant', detail);
-        return;
-      }
-
-      addMessage('assistant', 'Calendar disconnected for this session.');
-      await checkConnectionStatus();
-    }
-
-    async function sendTurn(message, source = 'typed') {
-      if (!message || !message.trim()) return;
-      addMessage('user', message);
-
-      const csrfToken = getCookie('vsa_csrf');
-
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || ''
-        },
-        body: JSON.stringify({ user_message: message })
-      });
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        const detail = parseErrorDetail(errorPayload, `Request failed (${response.status})`);
-        addMessage('assistant', detail);
-        statusEl.textContent = 'Request failed';
-        return;
-      }
-
-      const data = await response.json();
-      addMessage('assistant', data.assistant_message);
-      if (source === 'voice') {
-        speak(data.assistant_message);
-      }
-    }
-
-    function parseErrorDetail(errorPayload, fallback) {
-      const detail = errorPayload?.detail;
-      if (typeof detail === 'string') return detail;
-      if (detail && typeof detail === 'object') {
-        if (detail.message && detail.action) return `${detail.message} ${detail.action}`;
-        if (detail.message) return detail.message;
-      }
-      return fallback;
-    }
-
-    async function startRealtimeVoice() {
-      if (realtimePc) return;
-      if (!navigator.mediaDevices?.getUserMedia || !window.RTCPeerConnection) {
-        addMessage('assistant', 'Realtime voice is not supported in this browser.');
-        return;
-      }
-
-      const csrfToken = getCookie('vsa_csrf');
-      const sessionResponse = await fetch('/api/realtime/session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken || ''
-        }
-      });
-
-      if (!sessionResponse.ok) {
-        const errorPayload = await sessionResponse.json().catch(() => ({}));
-        addMessage('assistant', parseErrorDetail(errorPayload, 'Could not start realtime voice.'));
-        return;
-      }
-
-      const sessionData = await sessionResponse.json();
-      const ephemeralKey = sessionData?.client_secret?.value;
-      const realtimeModel = sessionData?.model;
-
-      if (!ephemeralKey || !realtimeModel) {
-        addMessage('assistant', 'Realtime session setup returned incomplete data.');
-        return;
-      }
-
-      realtimePc = new RTCPeerConnection();
-      realtimeDc = realtimePc.createDataChannel('oai-events');
-      realtimePc.ontrack = (event) => {
-        realtimeAudioEl.srcObject = event.streams[0];
-      };
-
-      realtimeDc.onopen = () => {
-        statusEl.textContent = 'Realtime voice connected';
-        realtimeDc.send(JSON.stringify({
-          type: 'session.update',
-          session: {
-            instructions: 'Transcribe user audio only. Do not respond with assistant content.',
-            turn_detection: { type: 'server_vad' },
-            input_audio_transcription: { model: 'gpt-4o-mini-transcribe' },
-            modalities: ['text']
-          }
-        }));
-      };
-
-      realtimeDc.onmessage = async (event) => {
-        try {
-          const payload = JSON.parse(event.data);
-          if (payload?.type === 'conversation.item.input_audio_transcription.completed') {
-            const transcript = (payload.transcript || '').trim();
-            if (transcript) {
-              if (isSynthesizing) return;
-              realtimeTranscriptBuffer = `${realtimeTranscriptBuffer} ${transcript}`.trim();
-              if (realtimeTranscriptFlushTimer) {
-                clearTimeout(realtimeTranscriptFlushTimer);
-              }
-              realtimeTranscriptFlushTimer = setTimeout(async () => {
-                const finalTranscript = stripAssistantEcho(realtimeTranscriptBuffer.trim());
-                realtimeTranscriptBuffer = '';
-                realtimeTranscriptFlushTimer = null;
-                if (finalTranscript) {
-                  if (shouldSuppressVoiceTranscript(finalTranscript)) {
-                    return;
-                  }
-                  await sendTurn(finalTranscript, 'voice');
-                }
-              }, 900);
-            }
-          }
-          if (payload?.type === 'error') {
-            const message = payload?.error?.message || 'Realtime voice error.';
-            addMessage('assistant', message);
-          }
-        } catch (_) {
-        }
-      };
-
-      realtimeStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      realtimeStream.getTracks().forEach((track) => realtimePc.addTrack(track, realtimeStream));
-      setRealtimeMicEnabled(true);
-
-      const offer = await realtimePc.createOffer();
-      await realtimePc.setLocalDescription(offer);
-
-      const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${encodeURIComponent(realtimeModel)}`, {
-        method: 'POST',
-        body: offer.sdp,
-        headers: {
-          Authorization: `Bearer ${ephemeralKey}`,
-          'Content-Type': 'application/sdp'
-        }
-      });
-
-      if (!sdpResponse.ok) {
-        stopRealtimeVoice();
-        addMessage('assistant', `Failed to establish realtime voice (${sdpResponse.status}).`);
-        return;
-      }
-
-      const answerSdp = await sdpResponse.text();
-      await realtimePc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
-      setVoiceButtonState(true);
-      statusEl.textContent = 'Realtime voice connected';
-    }
-
-    function stopRealtimeVoice() {
-      if (realtimeTranscriptFlushTimer) {
-        clearTimeout(realtimeTranscriptFlushTimer);
-        realtimeTranscriptFlushTimer = null;
-      }
-      realtimeTranscriptBuffer = '';
-      if (realtimeDc) {
-        realtimeDc.close();
-        realtimeDc = null;
-      }
-      if (realtimePc) {
-        realtimePc.close();
-        realtimePc = null;
-      }
-      if (realtimeStream) {
-        realtimeStream.getTracks().forEach((track) => track.stop());
-        realtimeStream = null;
-      }
-      realtimeAudioEl.srcObject = null;
-      window.speechSynthesis.cancel();
-      isSynthesizing = false;
-      setVoiceButtonState(false);
-      statusEl.textContent = 'Session ready';
-    }
-
-    function clearCurrentSessionChat() {
-      if (!activeChatStorageKey) return;
-      sessionStorage.removeItem(activeChatStorageKey);
-      clearChatUi();
-      statusEl.textContent = 'Chat cleared for this session';
-    }
-
-    sendBtn.addEventListener('click', async () => {
-      const message = textInput.value.trim();
-      if (!message) return;
-      textInput.value = '';
-      await sendTurn(message, 'typed');
-    });
-
-    textInput.addEventListener('keydown', async (event) => {
-      if (event.key === 'Enter') {
-        const message = textInput.value.trim();
-        if (!message) return;
-        textInput.value = '';
-        await sendTurn(message, 'typed');
-      }
-    });
-
-    connectBtn.addEventListener('click', () => {
-      window.location.assign('/api/auth/google/start');
-    });
-
-    realtimeStartBtn.addEventListener('click', async () => {
-      try {
-        await startRealtimeVoice();
-      } catch (error) {
-        stopRealtimeVoice();
-        addMessage('assistant', `Realtime voice failed: ${error.message}`);
-      }
-    });
-
-    realtimeStopBtn.addEventListener('click', () => {
-      stopRealtimeVoice();
-    });
-
-    clearChatBtn.addEventListener('click', () => {
-      clearCurrentSessionChat();
-    });
-
-    newSessionBtn.addEventListener('click', async () => {
-      stopRealtimeVoice();
-      window.speechSynthesis.cancel();
-      await startSession(true);
-      statusEl.textContent = 'Started a new session';
-    });
-
-    checkConnBtn.addEventListener('click', async () => {
-      await checkConnectionStatus();
-    });
-
-    disconnectBtn.addEventListener('click', async () => {
-      await disconnectCalendar();
-    });
-
-    startSession(false).catch((error) => {
-      statusEl.textContent = 'Initialization failed';
-      addMessage('assistant', `Error: ${error.message}`);
-    });
-  </script>
 </body>
 </html>

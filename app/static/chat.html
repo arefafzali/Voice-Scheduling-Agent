@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scheduling Chat</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --bg: #0b1220;
+      --panel: #111b32;
+      --border: #2b3b5f;
+      --text: #e4ebfa;
+      --muted: #9ab0d8;
+      --primary: #356dff;
+      --danger: #d35a5a;
+      --assistant: #8ec4ff;
+      --user: #9be7c7;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at 20% 10%, #142544 0%, var(--bg) 45%);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+    }
+    .wrap {
+      width: min(1060px, 95vw);
+      background: linear-gradient(180deg, #111a2e 0%, #0f1729 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1rem;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.85rem;
+    }
+    h1 { margin: 0; font-size: 1.25rem; }
+    .subtitle { margin: 0.2rem 0 0; color: var(--muted); font-size: 0.9rem; }
+    .modes { display: flex; gap: 0.5rem; }
+    .link {
+      text-decoration: none;
+      color: #d6e2ff;
+      border: 1px solid #3b4f76;
+      border-radius: 10px;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.84rem;
+    }
+    .link.active { background: #2a3f67; }
+
+    .chips { display: flex; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    .chip {
+      border: 1px solid #344a76;
+      background: #1b2948;
+      color: #c7d6f6;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      padding: 0.32rem 0.62rem;
+    }
+
+    .chat {
+      height: 56vh;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.8rem;
+      background: #0a1328;
+    }
+    .row {
+      display: flex;
+      gap: 0.5rem;
+      margin: 0.5rem 0;
+      line-height: 1.35;
+    }
+    .row .who {
+      min-width: 3.4rem;
+      font-weight: 700;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .row.user { color: var(--user); }
+    .row.assistant { color: var(--assistant); }
+    .time { color: #7f92ba; font-size: 0.74rem; margin-left: 0.4rem; }
+
+    .bar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+    input {
+      flex: 1;
+      min-width: 360px;
+      border: 1px solid #47608d;
+      border-radius: 10px;
+      background: #111c34;
+      color: var(--text);
+      padding: 0.68rem 0.82rem;
+      outline: none;
+    }
+    input:focus { border-color: #6c91e3; }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 0.58rem 0.88rem;
+      font-weight: 650;
+      cursor: pointer;
+      background: var(--primary);
+      color: white;
+    }
+    button.secondary { background: #2d426a; }
+    button.danger { background: var(--danger); }
+    .status { margin-top: 0.5rem; color: var(--muted); font-size: 0.86rem; }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="top">
+      <div>
+        <h1>Scheduling Chat</h1>
+        <p class="subtitle">Text-first planning with confirmation before calendar creation.</p>
+      </div>
+      <div class="modes">
+        <a class="link active" href="/chat">Chat</a>
+        <a class="link" href="/voice">Voice</a>
+      </div>
+    </div>
+
+    <div class="chips">
+      <span class="chip" id="sessionChip">Session: —</span>
+      <span class="chip" id="calendarChip">Calendar: unknown</span>
+    </div>
+
+    <div id="chat" class="chat" aria-live="polite"></div>
+
+    <div class="bar">
+      <button id="newSessionBtn" class="secondary">New Session</button>
+      <button id="clearBtn" class="secondary">Clear Chat</button>
+      <button id="connectBtn" class="secondary">Connect Calendar</button>
+      <button id="checkBtn" class="secondary">Check Connection</button>
+      <button id="disconnectBtn" class="danger">Disconnect</button>
+    </div>
+
+    <div class="bar">
+      <input id="textInput" placeholder="Type a message and press Enter" />
+      <button id="sendBtn">Send</button>
+    </div>
+
+    <div id="status" class="status">Initializing session...</div>
+  </main>
+
+  <script>
+    const chatEl = document.getElementById('chat');
+    const textInput = document.getElementById('textInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const newSessionBtn = document.getElementById('newSessionBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const connectBtn = document.getElementById('connectBtn');
+    const checkBtn = document.getElementById('checkBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const statusEl = document.getElementById('status');
+    const sessionChipEl = document.getElementById('sessionChip');
+    const calendarChipEl = document.getElementById('calendarChip');
+
+    const queryParams = new URLSearchParams(window.location.search);
+    const CHAT_STORAGE_PREFIX = 'vsa_chat_history_chat_v1:';
+
+    let currentSessionId = null;
+    let activeStorageKey = null;
+
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    }
+
+    function storageKey(sessionId) {
+      return `${CHAT_STORAGE_PREFIX}${sessionId}`;
+    }
+
+    function clearChatUi() {
+      chatEl.innerHTML = '';
+    }
+
+    function persist(role, text) {
+      if (!activeStorageKey) return;
+      const existing = JSON.parse(sessionStorage.getItem(activeStorageKey) || '[]');
+      existing.push({ role, text });
+      sessionStorage.setItem(activeStorageKey, JSON.stringify(existing));
+    }
+
+    function addMessage(role, text, shouldPersist = true) {
+      const row = document.createElement('div');
+      row.className = `row ${role}`;
+      const who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = role === 'assistant' ? 'Agent' : 'You';
+      const content = document.createElement('div');
+      content.textContent = text;
+      const time = document.createElement('span');
+      time.className = 'time';
+      time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      content.appendChild(time);
+      row.appendChild(who);
+      row.appendChild(content);
+      chatEl.appendChild(row);
+      chatEl.scrollTop = chatEl.scrollHeight;
+      if (shouldPersist) persist(role, text);
+    }
+
+    function parseErrorDetail(errorPayload, fallback) {
+      const detail = errorPayload?.detail;
+      if (typeof detail === 'string') return detail;
+      if (detail && typeof detail === 'object') {
+        if (detail.message && detail.action) return `${detail.message} ${detail.action}`;
+        if (detail.message) return detail.message;
+      }
+      return fallback;
+    }
+
+    function restoreHistory() {
+      clearChatUi();
+      if (!activeStorageKey) return;
+      const existing = JSON.parse(sessionStorage.getItem(activeStorageKey) || '[]');
+      if (!Array.isArray(existing)) return;
+      for (const item of existing) {
+        if (!item || typeof item.role !== 'string' || typeof item.text !== 'string') continue;
+        addMessage(item.role, item.text, false);
+      }
+    }
+
+    function updateSessionChip(sessionId) {
+      sessionChipEl.textContent = sessionId ? `Session: ${sessionId.slice(0, 8)}…` : 'Session: —';
+    }
+
+    async function checkConnectionStatus() {
+      const response = await fetch('/api/auth/google/status');
+      if (!response.ok) {
+        statusEl.textContent = 'Unable to check calendar connection';
+        calendarChipEl.textContent = 'Calendar: unknown';
+        return false;
+      }
+      const data = await response.json();
+      calendarChipEl.textContent = data.connected ? 'Calendar: connected' : 'Calendar: disconnected';
+      statusEl.textContent = data.connected ? 'Calendar connected' : 'Calendar not connected';
+      return Boolean(data.connected);
+    }
+
+    async function startSession(forceNew = false) {
+      const callbackSessionId = queryParams.get('session_id');
+      const oauthConnected = queryParams.get('oauth') === 'connected';
+      const startUrl = (!forceNew && oauthConnected && callbackSessionId)
+        ? `/api/session/start?session_id=${encodeURIComponent(callbackSessionId)}`
+        : `/api/session/start?force_new=${forceNew ? 'true' : 'false'}`;
+
+      const response = await fetch(startUrl, { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to create session');
+
+      const data = await response.json();
+      currentSessionId = data.session_id;
+      activeStorageKey = storageKey(currentSessionId);
+      updateSessionChip(currentSessionId);
+      restoreHistory();
+
+      if (data.assistant_message && data.assistant_message !== 'Session resumed.') {
+        addMessage('assistant', data.assistant_message);
+      }
+
+      await checkConnectionStatus();
+
+      if (oauthConnected) {
+        window.history.replaceState({}, document.title, '/chat');
+      }
+
+      statusEl.textContent = 'Session ready';
+    }
+
+    async function sendTurn(message) {
+      const userMessage = message.trim();
+      if (!userMessage) return;
+
+      addMessage('user', userMessage);
+      const csrfToken = getCookie('vsa_csrf');
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken || '',
+        },
+        body: JSON.stringify({ user_message: userMessage }),
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        addMessage('assistant', parseErrorDetail(errorPayload, `Request failed (${response.status})`));
+        statusEl.textContent = 'Request failed';
+        return;
+      }
+
+      const data = await response.json();
+      addMessage('assistant', data.assistant_message);
+      statusEl.textContent = 'Session ready';
+    }
+
+    async function disconnectCalendar() {
+      const csrfToken = getCookie('vsa_csrf');
+      const response = await fetch('/api/auth/google/disconnect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': csrfToken || '',
+        },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({}));
+        addMessage('assistant', parseErrorDetail(errorPayload, `Disconnect failed (${response.status})`));
+        return;
+      }
+      addMessage('assistant', 'Calendar disconnected for this session.');
+      await checkConnectionStatus();
+    }
+
+    sendBtn.addEventListener('click', async () => {
+      const message = textInput.value;
+      textInput.value = '';
+      await sendTurn(message);
+    });
+
+    textInput.addEventListener('keydown', async (event) => {
+      if (event.key !== 'Enter') return;
+      const message = textInput.value;
+      textInput.value = '';
+      await sendTurn(message);
+    });
+
+    connectBtn.addEventListener('click', () => {
+      window.location.assign('/api/auth/google/start');
+    });
+
+    checkBtn.addEventListener('click', async () => {
+      await checkConnectionStatus();
+    });
+
+    disconnectBtn.addEventListener('click', async () => {
+      await disconnectCalendar();
+    });
+
+    clearBtn.addEventListener('click', () => {
+      if (!activeStorageKey) return;
+      sessionStorage.removeItem(activeStorageKey);
+      clearChatUi();
+      statusEl.textContent = 'Chat cleared for this session';
+    });
+
+    newSessionBtn.addEventListener('click', async () => {
+      await startSession(true);
+      statusEl.textContent = 'Started a new session';
+    });
+
+    startSession(false).catch((error) => {
+      statusEl.textContent = 'Initialization failed';
+      addMessage('assistant', `Error: ${error.message}`);
+    });
+  </script>
+</body>
+</html>

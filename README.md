@@ -1,6 +1,6 @@
 # Voice Scheduling Agent (FastAPI + OpenAI Realtime + Google OAuth)
 
-Production-minded voice scheduling assistant with:
+Voice scheduling assistant with:
 - OpenAI Realtime (WebRTC) voice I/O in browser
 - FastAPI backend
 - Google Calendar OAuth 2.0 only (no service accounts)

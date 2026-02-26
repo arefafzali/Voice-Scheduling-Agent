@@ -19,6 +19,8 @@ class AgentInterpretation:
     skip_title: bool = False
     extracted_timezone: str | None = None
     extracted_duration_minutes: int | None = None
+    change_timezone_requested: bool = False
+    change_duration_requested: bool = False
     confirmation_intent: Literal["confirm", "decline", "none"] = "none"
     ambiguous_datetime: bool = False
 
@@ -49,6 +51,8 @@ class OpenAISchedulingAgent(SchedulingLLMAgent):
             "Extract structured fields from the user's message and conversation context. "
             "Rules: default timezone America/Montreal, default duration 30 unless user specifies, "
             "title is optional and must never block progress; if omitted allow skip_title=true. "
+            "Do not change timezone or duration unless user explicitly requests changing them. "
+            "Do not ask for duration unless the user explicitly asks to change duration. "
             "If name/date/time are present, move to confirmation summary. "
             "Always require explicit user confirmation before event creation. "
             "Identify confirm/decline intents. "
@@ -81,6 +85,8 @@ class OpenAISchedulingAgent(SchedulingLLMAgent):
                 "skip_title": "boolean",
                 "extracted_timezone": "IANA timezone string|null",
                 "extracted_duration_minutes": "integer|null",
+                "change_timezone_requested": "boolean",
+                "change_duration_requested": "boolean",
                 "confirmation_intent": "confirm|decline|none",
                 "ambiguous_datetime": "boolean",
             },
@@ -116,6 +122,8 @@ class OpenAISchedulingAgent(SchedulingLLMAgent):
             skip_title=bool(parsed.get("skip_title", False)),
             extracted_timezone=self._clean_optional_str(parsed.get("extracted_timezone")),
             extracted_duration_minutes=self._parse_int(parsed.get("extracted_duration_minutes")),
+            change_timezone_requested=bool(parsed.get("change_timezone_requested", False)),
+            change_duration_requested=bool(parsed.get("change_duration_requested", False)),
             confirmation_intent=self._parse_intent(parsed.get("confirmation_intent")),
             ambiguous_datetime=bool(parsed.get("ambiguous_datetime", False)),
         )

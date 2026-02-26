@@ -8,15 +8,37 @@
 </head>
 <body>
   <main class="container">
+    <nav class="mode-nav" aria-label="Mode switcher">
+      <a href="/chat" class="mode-link">Chat</a>
+      <a href="/voice" class="mode-link active" aria-current="page">Voice</a>
+    </nav>
+
     <header>
       <h1>Realtime Voice Scheduler</h1>
-      <p class="subtle">OpenAI Realtime over WebRTC with server-side tool execution.</p>
+      <p class="subtle">Live transcript + server-side tool execution over OpenAI Realtime WebRTC.</p>
     </header>
 
     <section class="controls">
       <button id="startBtn">Start</button>
       <button id="stopBtn" disabled>Stop</button>
+      <button id="newSessionBtn" class="secondary">New Session</button>
+      <button id="clearSessionBtn" class="secondary">Clear View</button>
       <span id="status" class="status">idle</span>
+      <span id="sessionState" class="chip">Session: —</span>
+      <span id="listenState" class="chip">Mic: off</span>
+      <span id="turnState" class="chip">Turn: idle</span>
+      <span id="calendarState" class="chip">Calendar: unknown</span>
+    </section>
+
+    <section class="controls controls-secondary">
+      <button id="connectBtn" class="secondary">Connect Calendar</button>
+      <button id="checkCalendarBtn" class="secondary">Check Connection</button>
+      <button id="disconnectBtn" class="danger">Disconnect Calendar</button>
+    </section>
+
+    <section class="panel live-panel">
+      <h2>Live User Transcript</h2>
+      <div id="liveTranscript" class="live-transcript empty">Live user transcript appears here...</div>
     </section>
 
     <section class="grid">

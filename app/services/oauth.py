@@ -16,6 +16,7 @@ GOOGLE_CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 @dataclass
 class OAuthStatePayload:
     session_id: str
+    return_to: str
     expires_at: float
 
 
@@ -23,18 +24,22 @@ class OAuthStateStore:
     def __init__(self) -> None:
         self._state_to_payload: dict[str, OAuthStatePayload] = {}
 
-    def issue(self, session_id: str, ttl_seconds: int = 600) -> str:
+    def issue(self, session_id: str, return_to: str = "/", ttl_seconds: int = 600) -> str:
         state = secrets.token_urlsafe(32)
-        self._state_to_payload[state] = OAuthStatePayload(session_id=session_id, expires_at=time.time() + ttl_seconds)
+        self._state_to_payload[state] = OAuthStatePayload(
+            session_id=session_id,
+            return_to=return_to,
+            expires_at=time.time() + ttl_seconds,
+        )
         return state
 
-    def consume(self, state: str) -> str | None:
+    def consume(self, state: str) -> OAuthStatePayload | None:
         payload = self._state_to_payload.pop(state, None)
         if payload is None:
             return None
         if payload.expires_at < time.time():
             return None
-        return payload.session_id
+        return payload
 
 
 class GoogleOAuthService:
@@ -42,9 +47,9 @@ class GoogleOAuthService:
         self._token_store = token_store
         self._state_store = state_store
 
-    def build_authorization_url(self, session_id: str) -> str:
+    def build_authorization_url(self, session_id: str, return_to: str = "/") -> str:
         flow = self._new_flow()
-        state = self._state_store.issue(session_id)
+        state = self._state_store.issue(session_id, return_to=return_to)
         authorization_url, _ = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
@@ -53,10 +58,12 @@ class GoogleOAuthService:
         )
         return authorization_url
 
-    def handle_callback(self, db: Session, state: str, code: str) -> str:
-        session_id = self._state_store.consume(state)
-        if not session_id:
+    def handle_callback(self, db: Session, state: str, code: str) -> tuple[str, str]:
+        payload = self._state_store.consume(state)
+        if not payload:
             raise ValueError("Invalid or expired OAuth state")
+
+        session_id = payload.session_id
 
         flow = self._new_flow()
         flow.fetch_token(code=code)
@@ -73,7 +80,7 @@ class GoogleOAuthService:
             raise ValueError("No refresh token returned by Google; revoke access and retry consent")
 
         self._token_store.upsert_refresh_token(db, session_id, refresh_token)
-        return session_id
+        return session_id, payload.return_to
 
     def disconnect(self, db: Session, session_id: str) -> bool:
         return self._token_store.delete_refresh_token(db, session_id)

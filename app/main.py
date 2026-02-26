@@ -6,8 +6,10 @@ import uuid
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.adapters.mcp_tool_adapter import MCPToolAdapter
@@ -127,6 +129,19 @@ def create_app() -> FastAPI:
         app.mount("/client", StaticFiles(directory=client_dir, html=True), name="realtime-client")
 
     static_dir = Path(__file__).parent / "static"
+
+    @app.get("/chat", include_in_schema=False)
+    async def chat_page() -> FileResponse:
+        return FileResponse(static_dir / "chat.html")
+
+    @app.get("/voice", include_in_schema=False)
+    @app.get("/voice/", include_in_schema=False)
+    async def voice_page() -> FileResponse:
+        voice_index = client_dir / "index.html"
+        if not voice_index.exists():
+            raise HTTPException(status_code=404, detail="Voice page is not available")
+        return FileResponse(voice_index)
+
     app.mount("/", StaticFiles(directory=static_dir, html=True), name="ui")
 
     return app
