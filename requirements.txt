@@ -1,5 +1,6 @@
 fastapi==0.116.1
 uvicorn[standard]==0.35.0
+gunicorn==23.0.0
 pydantic==2.11.7
 pydantic-settings==2.10.1
 google-api-python-client==2.178.0
@@ -7,6 +8,7 @@ google-auth==2.40.3
 python-dotenv==1.1.1
 pytest==8.4.1
 SQLAlchemy==2.0.36
+psycopg[binary]==3.2.9
 google-auth-oauthlib==1.2.1
 cryptography==43.0.1
 openai==1.64.0

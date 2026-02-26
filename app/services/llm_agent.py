@@ -43,13 +43,13 @@ class OpenAISchedulingAgent(SchedulingLLMAgent):
         self._model = model
 
     def interpret_turn(self, state: SessionState, user_message: str) -> AgentInterpretation:
-        reference_now = datetime.now(ZoneInfo(state.timezone or "America/Montreal"))
+        reference_now = datetime.now(ZoneInfo(state.timezone))
         system_prompt = (
             "You are the reasoning and response engine for a voice scheduling assistant. Return only JSON. "
             "Always generate a natural, context-aware assistant_message for this specific turn. "
             "Do not return generic placeholders. Do not repeat a fixed script. "
             "Extract structured fields from the user's message and conversation context. "
-            "Rules: default timezone America/Montreal, default duration 30 unless user specifies, "
+            f"Rules: default timezone {state.timezone}, default duration {state.duration_minutes} unless user specifies, "
             "title is optional and must never block progress; if omitted allow skip_title=true. "
             "Do not change timezone or duration unless user explicitly requests changing them. "
             "Do not ask for duration unless the user explicitly asks to change duration. "

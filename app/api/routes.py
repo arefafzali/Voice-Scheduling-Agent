@@ -41,7 +41,7 @@ from app.tools.context import (
     set_current_db_session,
 )
 from app.utils.session_security import SessionCookieCodec
-from app.utils.logging import get_request_id
+from app.utils.logging import get_recent_logs, get_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -170,6 +170,25 @@ def build_router(
             )
         except Exception:
             logger.exception("audit_log_write_failed", extra={"action": action, "status": status})
+
+    def _is_admin_request(request: Request) -> bool:
+        if not settings.admin_token:
+            return False
+        provided = request.headers.get("x-admin-token") or request.query_params.get("admin_token")
+        return bool(provided and provided == settings.admin_token)
+
+    def _require_feature_access(request: Request, *, enabled: bool, feature_name: str) -> None:
+        if enabled:
+            return
+        if settings.is_prod and _is_admin_request(request):
+            return
+        raise HTTPException(
+            status_code=403,
+            detail=_error_detail(
+                f"{feature_name} endpoint is disabled.",
+                action="Use demo mode or provide a valid admin token in prod.",
+            ),
+        )
 
     @router.get("/health")
     def health() -> dict[str, str]:
@@ -506,6 +525,7 @@ def build_router(
         request: CalendarEventRequest,
         db: Annotated[Session, Depends(get_db)],
     ) -> CalendarEventResult:
+        _require_feature_access(request_context, enabled=settings.enable_debug_endpoints, feature_name="Debug")
         _validate_csrf(_csrf_cookie(request_context), _csrf_header(request_context))
         resolved_session_id = _resolve_session_id(request_context, None)
         if not resolved_session_id:
@@ -582,7 +602,6 @@ def build_router(
         state: Annotated[str, Query(min_length=1)],
         code: Annotated[str, Query(min_length=1)],
         db: Annotated[Session, Depends(get_db)],
-        request: Request,
     ) -> RedirectResponse:
         try:
             session_id, return_to = oauth_service.handle_callback(db=db, state=state, code=code)
@@ -633,6 +652,15 @@ def build_router(
         _set_session_cookie(redirect_response, session_id)
         _set_csrf_cookie(redirect_response, secrets.token_urlsafe(32))
         return redirect_response
+
+    @router.get("/logs")
+    def get_logs(
+        request: Request,
+        limit: Annotated[int, Query(ge=1, le=300)] = 100,
+    ) -> dict[str, object]:
+        _require_feature_access(request, enabled=settings.enable_logs_endpoint, feature_name="Logs")
+        logs = get_recent_logs(limit=limit)
+        return {"count": len(logs), "logs": logs}
 
     @router.get("/auth/google/status", response_model=OAuthConnectionStatusResponse)
     def auth_google_status(

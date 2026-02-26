@@ -15,10 +15,10 @@ class GoogleCalendarIntegration:
         credentials = Credentials(
             token=None,
             refresh_token=refresh_token,
-            token_uri="https://oauth2.googleapis.com/token",
+            token_uri=settings.google_oauth_token_uri,
             client_id=settings.google_client_id,
             client_secret=settings.google_client_secret,
-            scopes=["https://www.googleapis.com/auth/calendar.events"],
+            scopes=settings.google_calendar_scopes,
         )
         credentials.refresh(Request())
         self._calendar_id = calendar_id

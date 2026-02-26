@@ -15,6 +15,9 @@ class OpenAIRealtimeService:
         voice: str,
         instructions: str,
         webrtc_url: str,
+        sessions_url: str,
+        transcription_model: str,
+        transcription_language: str,
     ) -> None:
         if not api_key:
             raise ValueError("OPENAI_API_KEY is required for OpenAI Realtime")
@@ -23,6 +26,9 @@ class OpenAIRealtimeService:
         self._voice = voice
         self._instructions = instructions
         self._webrtc_url = webrtc_url
+        self._sessions_url = sessions_url
+        self._transcription_model = transcription_model
+        self._transcription_language = transcription_language
 
     @property
     def webrtc_url(self) -> str:
@@ -47,7 +53,7 @@ class OpenAIRealtimeService:
                     },
                     "timezone": {
                         "type": "string",
-                        "description": "IANA timezone, e.g. America/Montreal (optional)",
+                        "description": "IANA timezone string (optional)",
                     },
                     "description": {"type": "string", "description": "Optional event description"},
                     "duration_minutes": {"type": "integer", "description": "Optional duration override"},
@@ -75,7 +81,10 @@ class OpenAIRealtimeService:
             "voice": self._voice,
             "instructions": f"{self._instructions}\n\n{required_behavior}",
             "modalities": ["audio", "text"],
-            "input_audio_transcription": {"model": "gpt-4o-mini-transcribe", "language": "en"},
+            "input_audio_transcription": {
+                "model": self._transcription_model,
+                "language": self._transcription_language,
+            },
             "turn_detection": {
                 "type": "server_vad",
                 "create_response": False,
@@ -87,7 +96,7 @@ class OpenAIRealtimeService:
             "tool_choice": "auto",
         }
         request = Request(
-            url="https://api.openai.com/v1/realtime/sessions",
+            url=self._sessions_url,
             data=json.dumps(body).encode("utf-8"),
             method="POST",
             headers={

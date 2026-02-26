@@ -50,6 +50,10 @@ function toSafePreview(value) {
 }
 
 function logEvent(direction, type, payload) {
+  if (!eventLogEl) {
+    return;
+  }
+
   const row = document.createElement('div');
   row.className = 'log-row';
 
@@ -185,7 +189,9 @@ function updateSessionChip() {
 
 function clearSessionView() {
   transcriptEl.innerHTML = '';
-  eventLogEl.innerHTML = '';
+  if (eventLogEl) {
+    eventLogEl.innerHTML = '';
+  }
   eventCreatedEl.innerHTML = 'No calendar event created yet.';
   eventCreatedEl.classList.add('empty');
   resetLiveTranscript();
@@ -215,6 +221,10 @@ function renderCreatedEvent(result) {
 }
 
 async function ensureServerSession() {
+  if (currentSessionId) {
+    return;
+  }
+
   const callbackSessionId = queryParams.get('session_id');
   const oauthConnected = queryParams.get('oauth') === 'connected';
   const startUrl = (!currentSessionId && oauthConnected && callbackSessionId)
@@ -524,7 +534,6 @@ async function start() {
     state.model = handoff.model;
     state.webrtcUrl = handoff.webrtc_url;
 
-    // Step 1: Capture microphone locally.
     state.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -533,18 +542,16 @@ async function start() {
       },
     });
 
-    // Step 2: Create RTCPeerConnection and attach local mic tracks.
     state.pc = new RTCPeerConnection();
     state.stream.getTracks().forEach((track) => state.pc.addTrack(track, state.stream));
 
-    // Step 3: Remote audio playback from OpenAI Realtime.
     state.remoteAudioEl = document.createElement('audio');
     state.remoteAudioEl.autoplay = true;
     state.pc.ontrack = (evt) => {
       state.remoteAudioEl.srcObject = evt.streams[0];
     };
 
-    // Step 4: DataChannel carries JSON events for transcripts, function calls, etc.
+    // DataChannel carries realtime JSON events (transcripts + tool calls).
     state.dc = state.pc.createDataChannel('oai-events');
     state.dc.addEventListener('message', onRealtimeMessage);
     state.dc.addEventListener('open', () => {
@@ -560,12 +567,10 @@ async function start() {
           instructions: 'Default language is English unless the user asks for another language. Start the conversation proactively with a warm one-line greeting and then ask for the user name. Use the exact name the user provides and never invent or replace it. Then collect preferred date, preferred time, and optional meeting title. If title is missing, default to "Meeting with {name}". Before any event creation, summarize all final details and ask for explicit yes/no confirmation. Do not call create_calendar_event without explicit confirmation.',
         },
       });
-      // Kick off the assistant's first response so it starts the slot-filling conversation.
       state.responseInFlight = false;
       requestAssistantResponse('Speak in English by default unless user requests another language. Start with this introduction sentence: "Hi, I\'m your scheduling assistant and I can help book your meeting." Then ask for the user\'s name, use exactly that name, gather preferred date, preferred time, and optional title, and confirm final details before creating the event. Do not ask for duration unless the user explicitly asks to change it.');
     });
 
-    // Step 5: SDP exchange (offer from browser -> answer from OpenAI realtime endpoint).
     const offer = await state.pc.createOffer();
     await state.pc.setLocalDescription(offer);
 

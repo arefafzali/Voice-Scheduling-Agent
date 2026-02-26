@@ -5,17 +5,16 @@ services:
     env_file:
       - .env
     ports:
-      # - "127.0.0.1:${HOST_PORT:-8001}:8000"
-      - "8000:8000"
+      - "127.0.0.1:${HOST_PORT:-8000}:8000"
     volumes:
       - ./data:/app/data
+    environment:
+      APP_MODE: demo
+      DB_REQUIRE_MIGRATIONS: "false"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
       interval: 20s
       timeout: 6s
       retries: 5
       start_period: 15s
-    read_only: true
-    tmpfs:
-      - /tmp
     restart: unless-stopped

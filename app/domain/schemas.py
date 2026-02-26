@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.config import settings
+
 
 class ConversationStage(str, Enum):
     COLLECT_NAME = "collect_name"
@@ -27,8 +29,8 @@ class SessionState(BaseModel):
     preferred_date: Optional[date] = None
     preferred_time: Optional[time] = None
     title: Optional[str] = None
-    timezone: str = "America/Montreal"
-    duration_minutes: int = Field(default=30, ge=5, le=480)
+    timezone: str = Field(default_factory=lambda: settings.default_timezone)
+    duration_minutes: int = Field(default_factory=lambda: settings.default_duration_minutes, ge=5, le=480)
 
     pending_clarification: Optional[str] = None
     created_event_id: Optional[str] = None

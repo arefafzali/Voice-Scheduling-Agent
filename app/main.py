@@ -25,24 +25,25 @@ from app.services.audit_log import AuditLogService
 from app.services.token_store import TokenStore
 from app.tools.calendar_tool import CreateCalendarEventTool
 from app.tools.registry import ToolRegistry
-from app.utils.logging import configure_logging, reset_request_id, set_app_env, set_request_id
+from app.utils.logging import configure_logging, reset_request_id, set_app_mode, set_request_id
 
 logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
+    """Create and configure the FastAPI application."""
     configure_logging(settings.log_level)
-    set_app_env(settings.app_env)
+    set_app_mode(settings.app_mode)
     init_db()
     app = FastAPI(
         title=settings.app_name,
-        docs_url="/swagger",
-        redoc_url="/redoc",
-        openapi_url="/openapi.json",
+        docs_url="/swagger" if settings.is_demo else None,
+        redoc_url="/redoc" if settings.is_demo else None,
+        openapi_url="/openapi.json" if settings.is_demo else None,
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -97,6 +98,9 @@ def create_app() -> FastAPI:
         voice=settings.openai_realtime_voice,
         instructions=settings.openai_realtime_instructions,
         webrtc_url=settings.openai_realtime_webrtc_url,
+        sessions_url=settings.openai_realtime_sessions_url,
+        transcription_model=settings.openai_transcription_model,
+        transcription_language=settings.openai_transcription_language,
     )
     llm_agent = OpenAISchedulingAgent(
         api_key=settings.openai_api_key,
