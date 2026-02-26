@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import secrets
 from typing import Annotated
 from collections.abc import Generator
@@ -19,6 +20,7 @@ from app.domain.schemas import (
     OAuthConnectionStatusResponse,
     OAuthCallbackResponse,
     OAuthStartResponse,
+    RealtimeSessionResponse,
     RealtimeSessionConfigResponse,
     SessionState,
     StartSessionResponse,
@@ -30,6 +32,8 @@ from app.db import SessionLocal
 from app.domain.session_store import InMemorySessionStore
 from app.services.conversation import ConversationService
 from app.services.oauth import GoogleOAuthService
+from app.services.realtime import OpenAIRealtimeService
+from app.services.audit_log import AuditLogService
 from app.services.token_store import TokenStore
 from app.tools.context import (
     get_current_session_id,
@@ -37,6 +41,7 @@ from app.tools.context import (
     set_current_db_session,
 )
 from app.utils.session_security import SessionCookieCodec
+from app.utils.logging import get_request_id
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,8 @@ def build_router(
     conversation: ConversationService,
     tool_adapter: MCPToolAdapter,
     oauth_service: GoogleOAuthService,
+    realtime_service: OpenAIRealtimeService,
+    audit_log_service: AuditLogService,
     token_store: TokenStore,
     default_timezone: str,
     default_duration: int,
@@ -144,6 +151,26 @@ def build_router(
         logger.info("session_started", extra={"session_id": state.session_id})
         return StartSessionResponse(session_id=state.session_id, assistant_message=opening, state=state)
 
+    def _write_audit(
+        db: Session,
+        *,
+        action: str,
+        status: str,
+        session_id: str | None,
+        details: dict | None = None,
+    ) -> None:
+        try:
+            audit_log_service.write(
+                db,
+                action=action,
+                status=status,
+                request_id=get_request_id(),
+                session_id=session_id,
+                details=details,
+            )
+        except Exception:
+            logger.exception("audit_log_write_failed", extra={"action": action, "status": status})
+
     @router.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -217,9 +244,23 @@ def build_router(
         try:
             turn_response = conversation.process_turn(state, payload.user_message)
         except HTTPException:
+            _write_audit(
+                db,
+                action="chat_turn",
+                status="error",
+                session_id=resolved_session_id,
+                details={"reason": "http_exception"},
+            )
             raise
         except Exception as exc:
             logger.exception("conversation_turn_failed", extra={"session_id": resolved_session_id})
+            _write_audit(
+                db,
+                action="chat_turn",
+                status="error",
+                session_id=resolved_session_id,
+                details={"reason": "conversation_exception"},
+            )
             raise HTTPException(
                 status_code=500,
                 detail=_error_detail(
@@ -231,6 +272,13 @@ def build_router(
             reset_current_db_session(db_token)
 
         store.save(turn_response.state)
+        _write_audit(
+            db,
+            action="chat_turn",
+            status="ok",
+            session_id=resolved_session_id,
+            details={"stage": turn_response.state.stage.value},
+        )
         _set_session_cookie(response, resolved_session_id)
         _ensure_csrf_cookie(response, _csrf_cookie(request))
         return turn_response
@@ -317,7 +365,7 @@ def build_router(
     @router.get("/realtime/session-config", response_model=RealtimeSessionConfigResponse)
     def realtime_session_config() -> RealtimeSessionConfigResponse:
         return RealtimeSessionConfigResponse(
-            transport="http",
+            transport="webrtc",
             sample_rate_hz=16000,
             input_audio_format="pcm16",
             output_audio_format="pcm16",
@@ -326,33 +374,124 @@ def build_router(
             confirmation_required=True,
         )
 
+    @router.post("/realtime/session", response_model=RealtimeSessionResponse)
+    def create_realtime_session(
+        request: Request,
+        response: Response,
+        db: Annotated[Session, Depends(get_db)],
+    ) -> RealtimeSessionResponse:
+        _validate_csrf(_csrf_cookie(request), _csrf_header(request))
+        session_payload = realtime_service.create_ephemeral_session()
+        request_id = request.headers.get("x-request-id")
+        if request_id:
+            response.headers["x-request-id"] = request_id
+
+        client_secret = session_payload.get("client_secret") if isinstance(session_payload, dict) else None
+        if not isinstance(client_secret, dict) or not isinstance(client_secret.get("value"), str):
+            logger.error("realtime_session_invalid_payload")
+            raise HTTPException(
+                status_code=502,
+                detail=_error_detail(
+                    "Realtime session response was invalid.",
+                    action="Retry creating the realtime session.",
+                ),
+            )
+
+        realtime_response = RealtimeSessionResponse(
+            id=str(session_payload.get("id") or ""),
+            model=str(session_payload.get("model") or settings.openai_realtime_model),
+            voice=session_payload.get("voice"),
+            webrtc_url=realtime_service.webrtc_url,
+            client_secret={
+                "value": client_secret["value"],
+                "expires_at": client_secret.get("expires_at"),
+            },
+        )
+
+        _write_audit(
+            db,
+            action="realtime_session_create",
+            status="ok",
+            session_id=_resolve_session_id(request, None),
+            details={"model": str(session_payload.get("model") or settings.openai_realtime_model)},
+        )
+        return realtime_response
+
     @router.post("/tools/execute", response_model=ToolExecutionResponse)
     def execute_tool(
         request_context: Request,
-        request: ToolExecutionRequest,
+        request: Annotated[dict, Body()],
         db: Annotated[Session, Depends(get_db)],
     ) -> ToolExecutionResponse:
         _validate_csrf(_csrf_cookie(request_context), _csrf_header(request_context))
         try:
+            tool_name = request.get("tool_name") or request.get("tool")
+            tool_payload = request.get("payload")
+            if tool_payload is None:
+                tool_payload = request.get("arguments")
+
+            if isinstance(tool_payload, str):
+                try:
+                    tool_payload = json.loads(tool_payload)
+                except ValueError as exc:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=_error_detail(
+                            "Tool arguments must be valid JSON.",
+                            action="Send arguments as a JSON object.",
+                        ),
+                    ) from exc
+
+            if not isinstance(tool_name, str) or not isinstance(tool_payload, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail=_error_detail(
+                        "Invalid tool request shape.",
+                        action="Provide {tool, arguments} or {tool_name, payload} with JSON object arguments.",
+                    ),
+                )
+
+            normalized_request = ToolExecutionRequest(tool_name=tool_name, payload=tool_payload)
             effective_session = _resolve_session_id(request_context, None)
             if not effective_session:
                 raise HTTPException(
                     status_code=401,
                     detail=_error_detail("No active session.", action="Call POST /api/session/start and retry."),
                 )
-            response = tool_adapter.invoke(request, context={"db": db, "session_id": effective_session})
-            logger.info("tool_executed", extra={"tool_name": request.tool_name})
+            response = tool_adapter.invoke(normalized_request, context={"db": db, "session_id": effective_session})
+            logger.info("tool_executed", extra={"tool_name": normalized_request.tool_name})
+            _write_audit(
+                db,
+                action="tool_execute",
+                status="ok",
+                session_id=effective_session,
+                details={"tool_name": normalized_request.tool_name},
+            )
             return response
         except HTTPException:
+            _write_audit(
+                db,
+                action="tool_execute",
+                status="error",
+                session_id=_resolve_session_id(request_context, None),
+                details={"reason": "http_exception"},
+            )
             raise
         except KeyError as exc:
-            logger.warning("tool_not_found", extra={"tool_name": request.tool_name})
+            logger.warning("tool_not_found", extra={"tool_name": request.get("tool_name") or request.get("tool")})
             raise HTTPException(
                 status_code=404,
                 detail=_error_detail("Tool not found.", action="Check tool_name and retry."),
             ) from exc
         except Exception as exc:
-            logger.exception("tool_execution_failed", extra={"tool_name": request.tool_name})
+            logger.exception("tool_execution_failed", extra={"tool_name": request.get("tool_name") or request.get("tool")})
+            _write_audit(
+                db,
+                action="tool_execute",
+                status="error",
+                session_id=_resolve_session_id(request_context, None),
+                details={"tool_name": request.get("tool_name") or request.get("tool")},
+            )
             raise HTTPException(
                 status_code=400,
                 detail=_error_detail(
@@ -442,7 +581,21 @@ def build_router(
     ) -> RedirectResponse:
         try:
             session_id = oauth_service.handle_callback(db=db, state=state, code=code)
+            _write_audit(
+                db,
+                action="oauth_callback",
+                status="ok",
+                session_id=session_id,
+                details={"provider": "google"},
+            )
         except ValueError as exc:
+            _write_audit(
+                db,
+                action="oauth_callback",
+                status="error",
+                session_id=None,
+                details={"reason": "invalid_state_or_token"},
+            )
             raise HTTPException(
                 status_code=400,
                 detail=_error_detail(
@@ -452,6 +605,13 @@ def build_router(
             ) from exc
         except Exception as exc:
             logger.exception("oauth_callback_failed")
+            _write_audit(
+                db,
+                action="oauth_callback",
+                status="error",
+                session_id=None,
+                details={"reason": "callback_exception"},
+            )
             raise HTTPException(
                 status_code=500,
                 detail=_error_detail(
@@ -496,6 +656,13 @@ def build_router(
                 detail=_error_detail("No active session to disconnect.", action="Start or resume a session and retry."),
             )
         oauth_service.disconnect(db=db, session_id=resolved_session_id)
+        _write_audit(
+            db,
+            action="oauth_disconnect",
+            status="ok",
+            session_id=resolved_session_id,
+            details={"provider": "google"},
+        )
         return OAuthCallbackResponse(session_id=resolved_session_id, status="disconnected")
 
     return router

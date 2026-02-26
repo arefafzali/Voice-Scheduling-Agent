@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Realtime Voice Scheduler</title>
+  <link rel="stylesheet" href="/client/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>Realtime Voice Scheduler</h1>
+      <p class="subtle">OpenAI Realtime over WebRTC with server-side tool execution.</p>
+    </header>
+
+    <section class="controls">
+      <button id="startBtn">Start</button>
+      <button id="stopBtn" disabled>Stop</button>
+      <span id="status" class="status">idle</span>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <h2>Transcript</h2>
+        <div id="transcript" class="scroll"></div>
+      </article>
+
+      <article class="panel">
+        <h2>Event Created</h2>
+        <div id="eventCreated" class="scroll empty">No calendar event created yet.</div>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Realtime Event Log</h2>
+      <div id="eventLog" class="scroll"></div>
+    </section>
+  </main>
+
+  <script src="/client/app.js" defer></script>
+</body>
+</html>

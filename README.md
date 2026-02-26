@@ -1,87 +1,100 @@
-# Voice Scheduling Agent (OAuth2 MVP Backend)
+# Voice Scheduling Agent (FastAPI + OpenAI Realtime + Google OAuth)
 
-Production-ready FastAPI backend for a voice scheduling assistant using an LLM-driven agent and Google Calendar OAuth 2.0 (3-legged) only.
+Production-minded voice scheduling assistant with:
+- OpenAI Realtime (WebRTC) voice I/O in browser
+- FastAPI backend
+- Google Calendar OAuth 2.0 only (no service accounts)
+- Server-side tool execution (`create_calendar_event`)
+- Confirmation required before event creation
+- Structured logs + DB-backed audit logs + request correlation IDs
 
-## Key Behaviors
-- Confirmation-before-create is enforced in the conversation layer.
-- Default timezone: `America/Montreal`.
-- Default duration: `30` minutes.
-- Default title fallback: `Meeting with {name}`.
-- `create_calendar_event` requires authenticated user/session token context.
+## 1) Prerequisites
+- Docker + Docker Compose
+- Google Cloud project with Calendar API enabled
+- OpenAI API key
 
-## OAuth 2.0 Setup (Required)
-1. In Google Cloud Console, create/select a project.
+## 2) Google OAuth Setup (exact)
+1. Create/select a Google Cloud project.
 2. Enable **Google Calendar API**.
-3. Configure **OAuth consent screen** (External or Internal as appropriate).
-4. Create **OAuth Client ID** of type **Web application**.
-5. Add authorized redirect URI:
-  - `http://localhost:8000/api/auth/google/callback`
-  - For deployed env: `https://<your-domain>/api/auth/google/callback`
-6. Copy client ID and secret into `.env`.
+3. Configure OAuth consent screen.
+4. Create OAuth Client ID (**Web application**).
+5. Add redirect URIs:
+   - `http://localhost:8000/api/auth/google/callback`
+   - `https://<your-domain>/api/auth/google/callback` (for deployment)
+6. Copy values into `.env`.
 
-## Environment Variables
+## 3) Environment Configuration
+Create `.env` from `.env.example` and set required values:
+- `OPENAI_API_KEY`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI`
-- `OPENAI_API_KEY`
-- `OPENAI_MODEL`
-- `APP_BASE_URL`
-- `DATABASE_URL`
-- `GOOGLE_CALENDAR_ID`
-- `SESSION_SECRET_KEY`
-- `SESSION_COOKIE_NAME`
-- `CSRF_COOKIE_NAME`
-- `CSRF_HEADER_NAME`
 
-## API Endpoints
-- Swagger UI: `GET /swagger`
-- OpenAPI JSON: `GET /openapi.json`
-- `GET /api/health`
+Important runtime settings:
+- `SESSION_SECRET_KEY`
+- `SESSION_COOKIE_SECURE` (`true` in production)
+- `DATABASE_URL` (default SQLite at `/app/data/app.db` in Docker)
+- `OPENAI_REALTIME_MODEL`, `OPENAI_REALTIME_VOICE`, `OPENAI_REALTIME_WEBRTC_URL`
+
+## 4) Run (Docker-first)
+```bash
+docker compose up --build
+```
+
+Health check endpoint:
+- `GET http://localhost:8000/api/health`
+
+UIs:
+- Main UI: `http://localhost:8000/`
+- Realtime WebRTC client: `http://localhost:8000/client`
+- Swagger: `http://localhost:8000/swagger`
+
+## 5) End-to-End Test Steps
+1. Open `http://localhost:8000/`.
+2. Click **Connect Calendar** and finish Google OAuth consent.
+3. Start voice mode or type messages.
+4. Provide meeting details in order:
+   - name
+   - date
+   - time
+   - title is optional (defaults to `Meeting with {name}`)
+5. Confirm final summary explicitly (`yes`, `confirm`).
+6. Verify event is created and link is returned.
+
+Behavior guarantees:
+- Event is **never created** before explicit confirmation.
+- Browser never receives Google OAuth tokens.
+- Tool calls execute server-side only (`POST /api/tools/execute`).
+
+## 6) API Surface (reviewers)
 - `POST /api/session/start`
-- `GET /api/session/me`
 - `POST /api/chat`
-- `GET /api/realtime/session-config`
+- `POST /api/realtime/session`
 - `POST /api/tools/execute`
-- `POST /api/debug/calendar/events`
-- `GET /api/auth/google/start` (browser redirect mode by default)
-- `GET /api/auth/google/start?redirect=false` (returns `authorization_url` JSON)
+- `GET /api/auth/google/start`
 - `GET /api/auth/google/callback`
 - `GET /api/auth/google/status`
 - `POST /api/auth/google/disconnect`
 
-## Connect Calendar and Test Event Creation
-1. Initialize session once: `POST /api/session/start`.
-  - Server issues HTTP-only cookie (`SESSION_COOKIE_NAME`, default `vsa_session`).
-  - State-changing requests require CSRF header (`X-CSRF-Token`) equal to CSRF cookie value.
-2. Connect Google Calendar:
-  - Open `/api/auth/google/start` directly in a browser tab.
-  - For API clients, call `/api/auth/google/start?redirect=false` and open returned `authorization_url`.
-3. Complete consent; callback stores refresh token for your cookie session.
-4. Create events:
-  - `POST /api/debug/calendar/events` (cookie session auto-resolved), or
-  - `POST /api/tools/execute` with `tool_name=create_calendar_event`.
+## 7) Observability
+- Structured JSON logs include `request_id`.
+- API responses include `x-request-id` header.
+- Audit records persisted in DB table `audit_logs` for critical actions (chat/tool/OAuth/realtime).
 
-If session is not connected, calendar creation returns `401/403`.
-Error responses are structured and actionable via `detail.message` and `detail.action`.
+## 8) Troubleshooting
+- **OAuth callback fails**
+  - Verify `GOOGLE_REDIRECT_URI` exactly matches the URI configured in Google Cloud.
+- **Calendar not connected**
+  - Re-run `/api/auth/google/start`, confirm correct Google account consent.
+- **No voice output / early interruption**
+  - Use Chrome desktop, allow microphone permissions, hard-refresh page (`Ctrl+F5`).
+- **CSRF validation failed**
+  - Ensure requests send `X-CSRF-Token` matching CSRF cookie.
+- **Realtime session creation fails**
+  - Verify `OPENAI_API_KEY` and realtime model settings.
 
-## LLM Agent Orchestration
-- Chat and voice turn understanding is handled by an LLM agent service.
-- Backend still enforces confirmation-before-create safety and tool execution constraints.
-
-## Production Session Notes
-- Session continuity uses encrypted+signed HTTP-only cookie.
-- Set `SESSION_COOKIE_SECURE=true` in HTTPS production.
-- Cookie TTL is controlled by `SESSION_COOKIE_MAX_AGE_SECONDS`.
-- State-changing APIs require CSRF header (`X-CSRF-Token` by default) matching CSRF cookie.
-
-## Run (Docker)
-```bash
-docker compose up --build
-```
-Open `http://localhost:8000`.
-
-## Run (Local)
-PowerShell (Windows):
+## 9) Local Dev (without Docker)
+PowerShell:
 ```bash
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -89,15 +102,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-bash (macOS/Linux):
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
-```
-
-## Tests
+## 10) Tests
 ```bash
 pytest -q
 ```

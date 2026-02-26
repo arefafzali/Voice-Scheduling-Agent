@@ -39,9 +39,12 @@ class ConversationService:
     def process_turn(self, state: SessionState, user_message: str) -> AgentTurnResponse:
         message = user_message.strip()
         ctx_token = set_current_session_id(state.session_id)
-        decision = self._llm_agent.interpret_turn(state, message)
-
         try:
+            if state.stage == ConversationStage.COMPLETED:
+                self._reset_for_next_event(state)
+
+            decision = self._llm_agent.interpret_turn(state, message)
+
             if state.stage == ConversationStage.COLLECT_NAME:
                 return self._handle_name(state, decision)
             if state.stage == ConversationStage.COLLECT_DATE:
@@ -51,7 +54,7 @@ class ConversationService:
             if state.stage == ConversationStage.COLLECT_TITLE:
                 return self._handle_title(state, decision)
             if state.stage == ConversationStage.CONFIRM:
-                return self._handle_confirmation(state, decision)
+                return self._handle_confirmation(state, decision, message)
             if state.stage == ConversationStage.CORRECTION:
                 return self._handle_correction(state, decision)
 
@@ -61,6 +64,15 @@ class ConversationService:
             )
         finally:
             reset_current_session_id(ctx_token)
+
+    def _reset_for_next_event(self, state: SessionState) -> None:
+        state.preferred_date = None
+        state.preferred_time = None
+        state.title = None
+        state.pending_clarification = None
+        state.created_event_id = None
+        state.created_event_link = None
+        state.stage = ConversationStage.COLLECT_DATE if state.name else ConversationStage.COLLECT_NAME
 
     def _apply_common_overrides(self, state: SessionState, decision) -> None:
         if decision.extracted_timezone:
@@ -108,15 +120,11 @@ class ConversationService:
             )
 
         if not state.title:
-            state.stage = ConversationStage.COLLECT_TITLE
-            return AgentTurnResponse(
-                assistant_message=self._msg(decision, "Do you want to add an optional title? You can say skip."),
-                state=state,
-            )
+            state.title = f"Meeting with {state.name}"
 
         state.stage = ConversationStage.CONFIRM
         return AgentTurnResponse(
-            assistant_message=self._msg(decision, self._build_confirmation_prompt(state)),
+            assistant_message=self._build_confirmation_prompt(state),
             state=state,
         )
 
@@ -167,13 +175,43 @@ class ConversationService:
 
         state.stage = ConversationStage.CONFIRM
         return AgentTurnResponse(
-            assistant_message=self._msg(decision, self._build_confirmation_prompt(state)),
+            assistant_message=self._build_confirmation_prompt(state),
             state=state,
         )
 
-    def _handle_confirmation(self, state: SessionState, decision) -> AgentTurnResponse:
-        self._apply_common_overrides(state, decision)
-        if decision.confirmation_intent == "confirm":
+    def _handle_confirmation(self, state: SessionState, decision, user_message: str) -> AgentTurnResponse:
+        explicit_detail_change = any(
+            [
+                bool(decision.extracted_name),
+                decision.extracted_date is not None,
+                decision.extracted_time is not None,
+                bool(decision.extracted_title),
+                bool(decision.skip_title),
+                bool(decision.extracted_timezone),
+                decision.extracted_duration_minutes is not None,
+            ]
+        )
+
+        self._apply_extracted_fields(state, decision)
+
+        if not state.name or state.preferred_date is None or state.preferred_time is None:
+            return self._advance_after_collection(state, decision)
+
+        if not state.title:
+            state.title = f"Meeting with {state.name}"
+
+        if explicit_detail_change:
+            state.stage = ConversationStage.CONFIRM
+            return AgentTurnResponse(
+                assistant_message=self._build_confirmation_prompt(state),
+                state=state,
+            )
+
+        confirmation_intent = decision.confirmation_intent
+        if confirmation_intent == "none":
+            confirmation_intent = self._infer_confirmation_intent(user_message)
+
+        if confirmation_intent == "confirm":
             try:
                 result = self._create_event(state)
             except Exception:
@@ -197,7 +235,7 @@ class ConversationService:
                 state=state,
             )
 
-        if decision.confirmation_intent == "decline":
+        if confirmation_intent == "decline":
             state.stage = ConversationStage.CORRECTION
             return AgentTurnResponse(
                 assistant_message=self._msg(decision, "Tell me what you want to change."),
@@ -205,9 +243,70 @@ class ConversationService:
             )
 
         return AgentTurnResponse(
-            assistant_message=self._msg(decision, "Please confirm or decline so I can continue."),
+            assistant_message=self._build_confirmation_prompt(state),
             state=state,
         )
+
+    def _infer_confirmation_intent(self, user_message: str) -> str:
+        normalized = " ".join(user_message.lower().strip().split())
+        if not normalized:
+            return "none"
+
+        confirm_tokens = {
+            "y",
+            "yes",
+            "yeah",
+            "yep",
+            "yup",
+            "ok",
+            "okay",
+            "sure",
+            "confirm",
+            "approved",
+            "please",
+        }
+        decline_tokens = {
+            "n",
+            "no",
+            "nope",
+            "cancel",
+            "stop",
+            "decline",
+            "dont",
+            "don't",
+            "do not",
+        }
+
+        if normalized in confirm_tokens:
+            return "confirm"
+        if normalized in decline_tokens:
+            return "decline"
+
+        confirm_phrases = (
+            "go ahead",
+            "do it",
+            "set it up",
+            "create it",
+            "schedule it",
+            "please do",
+            "looks good",
+        )
+        for phrase in confirm_phrases:
+            if phrase in normalized:
+                return "confirm"
+
+        decline_phrases = (
+            "do not",
+            "don't",
+            "not now",
+            "change it",
+            "wrong",
+        )
+        for phrase in decline_phrases:
+            if phrase in normalized:
+                return "decline"
+
+        return "none"
 
     def _handle_correction(self, state: SessionState, decision) -> AgentTurnResponse:
         self._apply_extracted_fields(state, decision)

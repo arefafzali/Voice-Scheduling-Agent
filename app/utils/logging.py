@@ -20,6 +20,10 @@ def reset_request_id(token) -> None:
     _request_id_ctx.reset(token)
 
 
+def get_request_id() -> str | None:
+    return _request_id_ctx.get()
+
+
 def set_app_env(app_env: str) -> None:
     global _app_env
     _app_env = app_env

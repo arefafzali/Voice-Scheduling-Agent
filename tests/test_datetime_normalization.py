@@ -117,3 +117,190 @@ def test_collect_name_preserves_prefilled_details() -> None:
 
     second = service.process_turn(first.state, "Aref")
     assert second.state.stage == ConversationStage.CONFIRM
+
+
+def test_completed_session_can_schedule_next_event() -> None:
+    registry = ToolRegistry()
+    agent = StubAgent(
+        [
+            AgentInterpretation(
+                assistant_message="Great, what date should I use?",
+            ),
+            AgentInterpretation(
+                assistant_message="Please confirm details",
+                extracted_date=date(2026, 3, 10),
+                extracted_time=time(14, 30),
+                extracted_title="Follow-up meeting",
+            ),
+        ]
+    )
+    service = ConversationService(registry, llm_agent=agent, default_timezone="America/Montreal", default_duration=30)
+
+    state = SessionState(
+        name="Afzal",
+        stage=ConversationStage.COMPLETED,
+        preferred_date=date(2026, 3, 3),
+        preferred_time=time(10, 0),
+        title="Old event",
+        created_event_id="evt_1",
+    )
+
+    first = service.process_turn(state, "schedule another meeting")
+    assert first.state.stage == ConversationStage.COLLECT_DATE
+    assert first.state.preferred_date is None
+    assert first.state.title is None
+
+    second = service.process_turn(first.state, "March 10 at 2:30pm follow-up meeting")
+    assert second.state.stage == ConversationStage.CONFIRM
+    assert second.state.preferred_date == date(2026, 3, 10)
+    assert second.state.preferred_time == time(14, 30)
+
+
+def test_optional_title_defaults_before_confirm() -> None:
+    registry = ToolRegistry()
+    agent = StubAgent(
+        [
+            AgentInterpretation(
+                assistant_message="Please confirm details",
+                extracted_time=time(11, 15),
+            )
+        ]
+    )
+    service = ConversationService(registry, llm_agent=agent, default_timezone="America/Montreal", default_duration=30)
+
+    state = SessionState(
+        name="Afzal",
+        stage=ConversationStage.COLLECT_TIME,
+        preferred_date=date(2026, 3, 12),
+        preferred_time=None,
+        title=None,
+    )
+
+    response = service.process_turn(state, "11:15 AM")
+    assert response.state.stage == ConversationStage.CONFIRM
+    assert response.state.title == "Meeting with Afzal"
+
+
+def test_confirmation_still_required_even_without_title() -> None:
+    registry = ToolRegistry()
+    agent = StubAgent(
+        [
+            AgentInterpretation(
+                assistant_message="Please confirm or decline so I can continue.",
+                confirmation_intent="none",
+            )
+        ]
+    )
+    service = ConversationService(registry, llm_agent=agent, default_timezone="America/Montreal", default_duration=30)
+
+    state = SessionState(
+        name="Afzal",
+        stage=ConversationStage.CONFIRM,
+        preferred_date=date(2026, 3, 12),
+        preferred_time=time(11, 15),
+        title=None,
+    )
+
+    response = service.process_turn(state, "go ahead")
+    assert response.state.stage == ConversationStage.CONFIRM
+    assert response.state.title == "Meeting with Afzal"
+
+
+def test_short_confirmation_token_creates_event() -> None:
+    capture_tool = CaptureTool()
+    registry = ToolRegistry()
+    registry.register(capture_tool)
+
+    agent = StubAgent(
+        [
+            AgentInterpretation(
+                assistant_message="Please confirm.",
+                confirmation_intent="none",
+            )
+        ]
+    )
+    service = ConversationService(registry, llm_agent=agent, default_timezone="America/Montreal", default_duration=30)
+
+    state = SessionState(
+        name="Murad",
+        stage=ConversationStage.CONFIRM,
+        preferred_date=date(2026, 2, 26),
+        preferred_time=time(22, 0),
+        title="Interesting Subject",
+        timezone="America/Montreal",
+        duration_minutes=30,
+    )
+
+    response = service.process_turn(state, "Y")
+    assert response.state.stage == ConversationStage.COMPLETED
+    assert capture_tool.calls == 1
+
+
+def test_confirmation_prompt_uses_latest_title_deterministically() -> None:
+    registry = ToolRegistry()
+    agent = StubAgent(
+        [
+            AgentInterpretation(
+                assistant_message="stale summary text",
+                confirmation_intent="none",
+                extracted_title="Interesting Subject",
+            )
+        ]
+    )
+    service = ConversationService(registry, llm_agent=agent, default_timezone="America/Montreal", default_duration=30)
+
+    state = SessionState(
+        name="Murad",
+        stage=ConversationStage.CORRECTION,
+        preferred_date=date(2026, 2, 26),
+        preferred_time=time(22, 0),
+        title=None,
+        timezone="America/Montreal",
+        duration_minutes=30,
+    )
+
+    response = service.process_turn(state, "I want title Interesting Subject")
+    assert response.state.stage == ConversationStage.CONFIRM
+    assert "Interesting Subject" in response.assistant_message
+    assert "stale summary text" not in response.assistant_message
+
+
+def test_confirm_stage_title_change_requires_reconfirmation() -> None:
+    capture_tool = CaptureTool()
+    registry = ToolRegistry()
+    registry.register(capture_tool)
+
+    agent = StubAgent(
+        [
+            AgentInterpretation(
+                assistant_message="updated",
+                extracted_title="Interesting Subject",
+                confirmation_intent="confirm",
+            ),
+            AgentInterpretation(
+                assistant_message="creating",
+                confirmation_intent="confirm",
+            ),
+        ]
+    )
+    service = ConversationService(registry, llm_agent=agent, default_timezone="America/Montreal", default_duration=30)
+
+    state = SessionState(
+        name="Murad",
+        stage=ConversationStage.CONFIRM,
+        preferred_date=date(2026, 2, 26),
+        preferred_time=time(22, 0),
+        title="Meeting with Murad",
+        timezone="America/Montreal",
+        duration_minutes=30,
+    )
+
+    first = service.process_turn(state, "I want the title to be Interesting Subject")
+    assert first.state.stage == ConversationStage.CONFIRM
+    assert first.state.title == "Interesting Subject"
+    assert capture_tool.calls == 0
+
+    second = service.process_turn(first.state, "yes")
+    assert second.state.stage == ConversationStage.COMPLETED
+    assert capture_tool.calls == 1
+    assert capture_tool.last_payload["summary"] == "Interesting Subject"

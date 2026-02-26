@@ -106,6 +106,19 @@ class RealtimeSessionConfigResponse(BaseModel):
     confirmation_required: bool
 
 
+class RealtimeClientSecret(BaseModel):
+    value: str
+    expires_at: int | None = None
+
+
+class RealtimeSessionResponse(BaseModel):
+    id: str
+    model: str
+    voice: str | None = None
+    webrtc_url: str
+    client_secret: RealtimeClientSecret
+
+
 class OAuthStartResponse(BaseModel):
     authorization_url: str
 
