@@ -1,24 +1,4 @@
 services:
-  voice-scheduling-agent:
-    build: .
-    container_name: voice-scheduling-agent-prod
-    env_file:
-      - .env
-    environment:
-      APP_MODE: prod
-      DB_REQUIRE_MIGRATIONS: "true"
-      DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-voice_scheduler}
-      SESSION_COOKIE_SECURE: "true"
-    ports:
-      - "${HOST_PORT:-8000}:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    read_only: true
-    tmpfs:
-      - /tmp
-    restart: unless-stopped
-
   db:
     image: postgres:16-alpine
     container_name: voice-scheduling-db-prod
@@ -30,9 +10,47 @@ services:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d ${POSTGRES_DB:-voice_scheduler}"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 8
+      retries: 20
+    restart: unless-stopped
+
+  migrate:
+    build: .
+    container_name: voice-scheduling-migrate-prod
+    env_file:
+      - ${APP_ENV_FILE:-.env}
+    environment:
+      APP_MODE: prod
+      DB_REQUIRE_MIGRATIONS: "true"
+      DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-voice_scheduler}
+      SESSION_COOKIE_SECURE: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "app.db"]
+    restart: "no"
+
+  voice-scheduling-agent:
+    build: .
+    container_name: voice-scheduling-agent-prod
+    env_file:
+      - ${APP_ENV_FILE:-.env}
+    environment:
+      APP_MODE: prod
+      DB_REQUIRE_MIGRATIONS: "true"
+      DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-voice_scheduler}
+      SESSION_COOKIE_SECURE: "true"
+    ports:
+      - "${HOST_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    read_only: true
+    tmpfs:
+      - /tmp
     restart: unless-stopped
 
 volumes:

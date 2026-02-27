@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db import Base
+from app.db_base import Base
 
 
 class OAuthToken(Base):

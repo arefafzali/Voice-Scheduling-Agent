@@ -8,6 +8,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import settings
 
+# from app.domain.models import oauth_tokens, audit_logs   # noqa: F401
+from app.db_base import Base
 
 def _ensure_sqlite_directory(database_url: str) -> None:
     if not database_url.startswith("sqlite:///"):
@@ -24,7 +26,7 @@ def _ensure_sqlite_directory(database_url: str) -> None:
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-Base = declarative_base()
+# Base = declarative_base()
 _ensure_sqlite_directory(settings.database_url)
 engine = create_engine(settings.database_url, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
