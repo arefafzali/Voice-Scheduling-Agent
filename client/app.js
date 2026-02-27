@@ -30,12 +30,15 @@ const state = {
   liveTranscript: '',
   isListening: false,
   assistantSpeaking: false,
+  dcOpen: false,
+  initialGreetingSent: false,
   lastAssistantMessage: '',
   ignoreVoiceInputUntil: 0,
   processedToolCallIds: new Set(),
 };
 
 let currentSessionId = null;
+let sessionBootstrapPromise = null;
 
 function nowLabel() {
   return new Date().toLocaleTimeString();
@@ -341,6 +344,23 @@ function requestAssistantResponse(instructions) {
   });
 }
 
+function kickoffAssistantGreeting() {
+  if (state.initialGreetingSent) {
+    return;
+  }
+  if (!state.dc || state.dc.readyState !== 'open') {
+    return;
+  }
+  state.initialGreetingSent = true;
+  state.responseInFlight = false;
+  requestAssistantResponse('Speak in English by default unless user requests another language. Start with this introduction sentence: "Hi, I\'m your scheduling assistant and I can help book your meeting." Then ask for the user\'s name, use exactly that name, gather preferred date, preferred time, and optional title, and confirm final details before creating the event. Do not ask for duration unless the user explicitly asks to change it.');
+}
+
+function eventTypeIs(event, candidates) {
+  const type = event?.type || '';
+  return candidates.includes(type);
+}
+
 async function executeToolOnBackend(toolName, toolArgs, callId) {
   const csrfToken = getCookie('vsa_csrf') || '';
 
@@ -474,14 +494,25 @@ function onRealtimeMessage(raw) {
     return;
   }
 
-  if (event.type === 'response.audio_transcript.done' || event.type === 'response.text.done') {
-    appendTranscript('assistant', event.transcript || event.text || '');
+  if (eventTypeIs(event, [
+    'response.audio_transcript.done',
+    'response.output_audio_transcript.done',
+    'response.text.done',
+    'response.output_text.done',
+  ])) {
+    const assistantText = event.transcript || event.text || event.delta || '';
+    appendTranscript('assistant', assistantText);
     setLiveTranscript('');
     setTurnState('idle');
     return;
   }
 
-  if (event.type === 'response.audio.delta' || event.type === 'response.audio_transcript.delta') {
+  if (eventTypeIs(event, [
+    'response.audio.delta',
+    'response.output_audio.delta',
+    'response.audio_transcript.delta',
+    'response.output_audio_transcript.delta',
+  ])) {
     if (!state.assistantSpeaking) {
       state.assistantSpeaking = true;
       state.ignoreVoiceInputUntil = Date.now() + 2500;
@@ -491,7 +522,12 @@ function onRealtimeMessage(raw) {
     return;
   }
 
-  if (event.type === 'response.done' || event.type === 'response.completed' || event.type === 'response.output_text.done') {
+  if (eventTypeIs(event, [
+    'response.done',
+    'response.completed',
+    'response.output_text.done',
+    'response.output_audio.done',
+  ])) {
     state.responseInFlight = false;
     setTurnState('idle');
     state.assistantSpeaking = false;
@@ -521,6 +557,21 @@ function onRealtimeMessage(raw) {
     });
     return;
   }
+
+  if (event.type === 'session.created' || event.type === 'session.updated') {
+    kickoffAssistantGreeting();
+    return;
+  }
+
+  if (event.type === 'error') {
+    state.responseInFlight = false;
+    setTurnState('idle');
+    const message = event?.error?.message || event?.message || 'Realtime error';
+    setStatus('error', `error: ${message}`);
+    appendTranscript('assistant', `System: ${message}`);
+    logEvent('in', 'realtime.error', event.error || event);
+    return;
+  }
 }
 
 async function start() {
@@ -547,14 +598,33 @@ async function start() {
 
     state.remoteAudioEl = document.createElement('audio');
     state.remoteAudioEl.autoplay = true;
+    state.remoteAudioEl.playsInline = true;
+    state.remoteAudioEl.muted = false;
+    state.remoteAudioEl.style.display = 'none';
+    document.body.appendChild(state.remoteAudioEl);
+    state.remoteAudioEl.addEventListener('loadedmetadata', () => {
+      const playPromise = state.remoteAudioEl.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((error) => {
+          logEvent('in', 'remote_audio.play.error', { message: error?.message || 'play failed' });
+        });
+      }
+    });
     state.pc.ontrack = (evt) => {
       state.remoteAudioEl.srcObject = evt.streams[0];
+      const playPromise = state.remoteAudioEl.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch((error) => {
+          logEvent('in', 'remote_audio.play.error', { message: error?.message || 'play failed' });
+        });
+      }
     };
 
     // DataChannel carries realtime JSON events (transcripts + tool calls).
     state.dc = state.pc.createDataChannel('oai-events');
     state.dc.addEventListener('message', onRealtimeMessage);
     state.dc.addEventListener('open', () => {
+      state.dcOpen = true;
       logEvent('in', 'data_channel_open');
       setStatus('connected', 'connected');
       setListeningState(true);
@@ -567,8 +637,7 @@ async function start() {
           instructions: 'Default language is English unless the user asks for another language. Start the conversation proactively with a warm one-line greeting and then ask for the user name. Use the exact name the user provides and never invent or replace it. Then collect preferred date, preferred time, and optional meeting title. If title is missing, default to "Meeting with {name}". Before any event creation, summarize all final details and ask for explicit yes/no confirmation. Do not call create_calendar_event without explicit confirmation.',
         },
       });
-      state.responseInFlight = false;
-      requestAssistantResponse('Speak in English by default unless user requests another language. Start with this introduction sentence: "Hi, I\'m your scheduling assistant and I can help book your meeting." Then ask for the user\'s name, use exactly that name, gather preferred date, preferred time, and optional title, and confirm final details before creating the event. Do not ask for duration unless the user explicitly asks to change it.');
+      setTimeout(() => kickoffAssistantGreeting(), 250);
     });
 
     const offer = await state.pc.createOffer();
@@ -589,6 +658,7 @@ async function start() {
 
     const answerSdp = await sdpResponse.text();
     await state.pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    kickoffAssistantGreeting();
   } catch (error) {
     logEvent('in', 'start.error', { message: error.message });
     await stop(true);
@@ -635,6 +705,8 @@ async function stop(silent = false) {
   state.pendingUserTurn = false;
   state.responseInFlight = false;
   state.assistantSpeaking = false;
+  state.dcOpen = false;
+  state.initialGreetingSent = false;
   state.lastAssistantMessage = '';
   state.ignoreVoiceInputUntil = 0;
   state.processedToolCallIds = new Set();
@@ -672,14 +744,25 @@ updateSessionChip();
 setListeningState(false);
 setTurnState('idle');
 resetLiveTranscript();
-ensureServerSession()
+sessionBootstrapPromise = ensureServerSession()
   .then(() => checkConnectionStatus())
   .catch((error) => {
     calendarStateEl.textContent = 'Calendar: unknown';
     logEvent('in', 'session.init.error', { message: error.message });
   });
 
-connectBtn.addEventListener('click', () => {
+connectBtn.addEventListener('click', async () => {
+  try {
+    if (sessionBootstrapPromise) {
+      await sessionBootstrapPromise;
+    }
+    if (!currentSessionId) {
+      await ensureServerSession();
+    }
+  } catch (error) {
+    logEvent('in', 'calendar.connect.session_error', { message: error?.message || 'session init failed' });
+  }
+
   const qs = currentSessionId
     ? `?session_id=${encodeURIComponent(currentSessionId)}&return_to=%2Fvoice`
     : '?return_to=%2Fvoice';

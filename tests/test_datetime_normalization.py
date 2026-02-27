@@ -206,7 +206,7 @@ def test_confirmation_still_required_even_without_title() -> None:
     assert response.state.title == "Meeting with Afzal"
 
 
-def test_short_confirmation_token_creates_event() -> None:
+def test_short_confirmation_token_does_not_auto_confirm_event() -> None:
     capture_tool = CaptureTool()
     registry = ToolRegistry()
     registry.register(capture_tool)
@@ -232,8 +232,8 @@ def test_short_confirmation_token_creates_event() -> None:
     )
 
     response = service.process_turn(state, "Y")
-    assert response.state.stage == ConversationStage.COMPLETED
-    assert capture_tool.calls == 1
+    assert response.state.stage == ConversationStage.CONFIRM
+    assert capture_tool.calls == 0
 
 
 def test_confirmation_prompt_uses_latest_title_deterministically() -> None:

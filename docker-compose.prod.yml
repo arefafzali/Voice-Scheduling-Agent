@@ -22,9 +22,12 @@ services:
       - ${APP_ENV_FILE:-.env}
     environment:
       APP_MODE: prod
+      APP_BASE_URL: ${APP_BASE_URL}
       DB_REQUIRE_MIGRATIONS: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS}
       DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-voice_scheduler}
       SESSION_COOKIE_SECURE: "true"
+      WEB_CONCURRENCY: "1"
     depends_on:
       db:
         condition: service_healthy
@@ -38,7 +41,9 @@ services:
       - ${APP_ENV_FILE:-.env}
     environment:
       APP_MODE: prod
+      APP_BASE_URL: ${APP_BASE_URL}
       DB_REQUIRE_MIGRATIONS: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS}
       DATABASE_URL: postgresql+psycopg://app:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-voice_scheduler}
       SESSION_COOKIE_SECURE: "true"
     ports:

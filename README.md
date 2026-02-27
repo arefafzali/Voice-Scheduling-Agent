@@ -8,6 +8,9 @@ Production-minded voice scheduling assistant with:
 - DB-backed audit logging + request correlation ID
 - Confirm-before-create enforcement
 
+Current runtime note:
+- Sessions are currently stored in-process (`InMemorySessionStore`), so run with a single app worker (`WEB_CONCURRENCY=1`) to avoid cross-worker "Session not found" behavior.
+
 ## Runtime Modes
 
 Use `APP_MODE` to select behavior:
@@ -76,13 +79,14 @@ Use production compose stack (app + postgres):
 docker compose -f docker-compose.prod.yml --env-file .env up --build -d
 ```
 
-Then apply schema migration command before serving traffic:
+Optional: use a custom env file (for example tunnel/proxy URL):
 ```bash
-python -m app.db
+docker compose -f docker-compose.prod.yml --env-file .env.tunnel up --build -d
 ```
 
 Notes:
 - In prod mode, startup enforces migration readiness (`DB_REQUIRE_MIGRATIONS=true`).
+- `docker-compose.prod.yml` includes a `migrate` service and the app waits for migration completion before starting.
 - Keep `SESSION_COOKIE_SECURE=true` and `APP_BASE_URL=https://...`.
 
 ## 6) Health and API
@@ -144,3 +148,32 @@ In prod, pass admin token only when needed:
   - Ensure `X-CSRF-Token` matches CSRF cookie.
 - **Prod startup fails with migration message**
   - Run `python -m app.db` against target DB and restart.
+
+## 10) Running Tests
+
+Run tests locally from the repository root.
+
+PowerShell (Windows):
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+pytest -q
+```
+
+bash/zsh (macOS/Linux):
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest -q
+```
+
+Run a single test file:
+```bash
+pytest -q tests/test_tool_execution.py
+```
+
+`pytest.ini` already sets `pythonpath=.` and `testpaths=tests`.
+
+If you see missing Google/OpenAI modules, ensure `pip install -r requirements.txt` ran in the active environment.

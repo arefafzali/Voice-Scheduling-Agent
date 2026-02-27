@@ -190,6 +190,10 @@ def build_router(
             ),
         )
 
+    def _is_openai_quota_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return "insufficient_quota" in text or "rate limit" in text or "429" in text
+
     @router.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -280,6 +284,14 @@ def build_router(
                 session_id=resolved_session_id,
                 details={"reason": "conversation_exception"},
             )
+            if _is_openai_quota_error(exc):
+                raise HTTPException(
+                    status_code=429,
+                    detail=_error_detail(
+                        "OpenAI quota/rate limit reached.",
+                        action="Update billing/quota for OPENAI_API_KEY, then retry.",
+                    ),
+                ) from exc
             raise HTTPException(
                 status_code=500,
                 detail=_error_detail(
@@ -333,6 +345,14 @@ def build_router(
             raise
         except Exception as exc:
             logger.exception("conversation_turn_failed", extra={"session_id": resolved_session_id})
+            if _is_openai_quota_error(exc):
+                raise HTTPException(
+                    status_code=429,
+                    detail=_error_detail(
+                        "OpenAI quota/rate limit reached.",
+                        action="Update billing/quota for OPENAI_API_KEY, then retry.",
+                    ),
+                ) from exc
             raise HTTPException(
                 status_code=500,
                 detail=_error_detail(

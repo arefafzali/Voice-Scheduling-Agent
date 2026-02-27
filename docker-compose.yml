@@ -11,6 +11,7 @@ services:
     environment:
       APP_MODE: demo
       DB_REQUIRE_MIGRATIONS: "false"
+      WEB_CONCURRENCY: "1"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5)"]
       interval: 20s

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-import secrets
+import base64
+import hashlib
+import hmac
+import json
 import time
-from importlib import import_module
 from dataclasses import dataclass
+from importlib import import_module
 
 from sqlalchemy.orm import Session
 
@@ -19,25 +22,66 @@ class OAuthStatePayload:
 
 
 class OAuthStateStore:
-    def __init__(self) -> None:
-        self._state_to_payload: dict[str, OAuthStatePayload] = {}
+    def __init__(self, signing_key: str | None = None) -> None:
+        key = (signing_key or settings.session_secret_key).strip()
+        if not key:
+            raise ValueError("SESSION_SECRET_KEY is required to sign OAuth state")
+        self._signing_key = key.encode("utf-8")
 
     def issue(self, session_id: str, return_to: str = "/", ttl_seconds: int = 600) -> str:
-        state = secrets.token_urlsafe(32)
-        self._state_to_payload[state] = OAuthStatePayload(
-            session_id=session_id,
-            return_to=return_to,
-            expires_at=time.time() + ttl_seconds,
-        )
-        return state
+        payload = {
+            "session_id": session_id,
+            "return_to": return_to,
+            "expires_at": time.time() + ttl_seconds,
+        }
+        payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        payload_b64 = self._b64_encode(payload_json)
+        signature = hmac.new(self._signing_key, payload_b64.encode("utf-8"), hashlib.sha256).digest()
+        signature_b64 = self._b64_encode(signature)
+        return f"{payload_b64}.{signature_b64}"
 
     def consume(self, state: str) -> OAuthStatePayload | None:
-        payload = self._state_to_payload.pop(state, None)
-        if payload is None:
+        try:
+            payload_b64, signature_b64 = state.split(".", 1)
+        except ValueError:
+            return None
+
+        try:
+            provided_signature = self._b64_decode(signature_b64)
+        except Exception:
+            return None
+
+        expected_signature = hmac.new(
+            self._signing_key,
+            payload_b64.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+        if not hmac.compare_digest(expected_signature, provided_signature):
+            return None
+
+        try:
+            payload_raw = self._b64_decode(payload_b64)
+            decoded = json.loads(payload_raw.decode("utf-8"))
+            payload = OAuthStatePayload(
+                session_id=str(decoded.get("session_id") or "").strip(),
+                return_to=str(decoded.get("return_to") or "/").strip() or "/",
+                expires_at=float(decoded.get("expires_at") or 0),
+            )
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return None
+
+        if not payload.session_id:
             return None
         if payload.expires_at < time.time():
             return None
         return payload
+
+    def _b64_encode(self, value: bytes) -> str:
+        return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+    def _b64_decode(self, value: str) -> bytes:
+        padding = "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode(f"{value}{padding}")
 
 
 class GoogleOAuthService:
