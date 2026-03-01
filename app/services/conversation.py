@@ -190,19 +190,34 @@ class ConversationService:
         )
 
     def _handle_confirmation(self, state: SessionState, decision, user_message: str) -> AgentTurnResponse:
-        explicit_detail_change = any(
-            [
-                bool(decision.extracted_name),
-                decision.extracted_date is not None,
-                decision.extracted_time is not None,
-                bool(decision.extracted_title),
-                bool(decision.skip_title),
-                bool(decision.change_timezone_requested and decision.extracted_timezone),
-                bool(decision.change_duration_requested and decision.extracted_duration_minutes is not None),
-            ]
-        )
+        previous_name = state.name
+        previous_date = state.preferred_date
+        previous_time = state.preferred_time
+        previous_title = state.title
+        previous_timezone = state.timezone
+        previous_duration = state.duration_minutes
 
         self._apply_extracted_fields(state, decision)
+
+        explicit_detail_change = any(
+            [
+                bool(decision.extracted_name and state.name != previous_name),
+                bool(decision.extracted_date is not None and state.preferred_date != previous_date),
+                bool(decision.extracted_time is not None and state.preferred_time != previous_time),
+                bool(decision.extracted_title and state.title != previous_title),
+                bool(decision.skip_title and previous_title is not None),
+                bool(
+                    decision.change_timezone_requested
+                    and decision.extracted_timezone
+                    and state.timezone != previous_timezone
+                ),
+                bool(
+                    decision.change_duration_requested
+                    and decision.extracted_duration_minutes is not None
+                    and state.duration_minutes != previous_duration
+                ),
+            ]
+        )
 
         if not state.name or state.preferred_date is None or state.preferred_time is None:
             return self._advance_after_collection(state, decision)

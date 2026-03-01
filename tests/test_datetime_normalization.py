@@ -304,3 +304,37 @@ def test_confirm_stage_title_change_requires_reconfirmation() -> None:
     assert second.state.stage == ConversationStage.COMPLETED
     assert capture_tool.calls == 1
     assert capture_tool.last_payload["summary"] == "Interesting Subject"
+
+
+def test_confirm_stage_echoed_details_do_not_block_confirmation() -> None:
+    capture_tool = CaptureTool()
+    registry = ToolRegistry()
+    registry.register(capture_tool)
+
+    agent = StubAgent(
+        [
+            AgentInterpretation(
+                assistant_message="creating",
+                extracted_name="Murad",
+                extracted_date=date(2026, 2, 26),
+                extracted_time=time(22, 0),
+                extracted_title="Interesting Subject",
+                confirmation_intent="confirm",
+            )
+        ]
+    )
+    service = ConversationService(registry, llm_agent=agent, default_timezone="America/Montreal", default_duration=30)
+
+    state = SessionState(
+        name="Murad",
+        stage=ConversationStage.CONFIRM,
+        preferred_date=date(2026, 2, 26),
+        preferred_time=time(22, 0),
+        title="Interesting Subject",
+        timezone="America/Montreal",
+        duration_minutes=30,
+    )
+
+    response = service.process_turn(state, "yes")
+    assert response.state.stage == ConversationStage.COMPLETED
+    assert capture_tool.calls == 1
